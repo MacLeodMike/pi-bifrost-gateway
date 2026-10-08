@@ -24,7 +24,7 @@ export interface BifrostRegistrationPi {
 
 /**
  * Compose the gateway model list from live Bifrost state: member catalog
- * (`/v1/models`) + this VK's routing rules → chain models (`gateway/<chain>`)
+ * (`/v1/models`) + this VK's routing rules → chain models (`bifrost/<chain>`)
  * and, when configured, direct-selectable member models.
  * Returns an empty list when the credential or baseUrl is missing.
  * Throws when discovery itself fails (bad credential, unreachable gateway,

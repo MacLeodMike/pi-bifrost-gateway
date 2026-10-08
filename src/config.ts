@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export interface BifrostConfig {
-	/** Emit chain models (gateway/<chain>) from the VK's routing rules. */
+	/** Emit chain models (bifrost/<chain>) from the VK's routing rules. */
 	publishChains: boolean;
 	/** Emit all upstream models from /v1/models as direct-selectable entries. */
 	publishUpstream: boolean;
