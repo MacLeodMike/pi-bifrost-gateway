@@ -26,15 +26,17 @@ env. `/login gateway` prompts for the key.
 
 ## Configuration
 
-`~/.pi/agent/pi-bifrost.json`:
+`~/.pi/agent/pi-bifrost.json` (all keys optional; both publish flags default
+to `true`):
 
 ```json
-{ "publishMembers": false }
+{ "publishChains": true, "publishUpstream": true }
 ```
 
-- `publishMembers: true` also emits every unique chain member
-  (`hyper/glm-5.3-flash`, `pareto/glm-5.3-flash`, …) as a direct-selectable
-  model with its real per-member pricing.
+- `publishChains: false` hides the `gateway/<chain>` models.
+- `publishUpstream: false` hides the direct-selectable upstream catalog
+  (`hyper/glm-5.3-flash`, `pareto/glm-5.3-flash`, …) with real per-member
+  pricing. `publishMembers` is accepted as a legacy alias.
 - `baseUrl` (optional) overrides the gateway URL; then env
   `BIFROST_BASE_URL`, then `GATEWAY_BASE_URL`; default is the deployed
   tailscale gateway URL.

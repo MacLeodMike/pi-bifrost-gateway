@@ -278,23 +278,37 @@ export function buildChainModels(
 	});
 }
 
-/** Build direct-selectable member models with real per-member pricing. */
+/**
+ * Build direct-selectable models for the /v1/models catalog with real
+ * per-member pricing, ordered with chain members first.
+ */
 export function buildMemberModels(
 	chains: Chain[],
 	catalog: CatalogModel[],
 	gatewayId: string,
 	baseUrl: string,
 ): Model<"openai-completions">[] {
-	const memberIds = new Set<string>();
+	const memberIds: string[] = [];
+	const seen = new Set<string>();
 	for (const chain of chains) {
-		memberIds.add(chain.primary);
-		for (const fallback of chain.fallbacks) memberIds.add(fallback);
+		for (const id of [chain.primary, ...chain.fallbacks]) {
+			if (!seen.has(id)) {
+				seen.add(id);
+				memberIds.push(id);
+			}
+		}
 	}
 	const byId = new Map(catalog.map((m) => [m.id, m] as const));
+	for (const entry of catalog) {
+		if (!seen.has(entry.id)) {
+			seen.add(entry.id);
+			memberIds.push(entry.id);
+		}
+	}
 	const models: Model<"openai-completions">[] = [];
 	for (const memberId of memberIds) {
 		const entry = byId.get(memberId);
-		if (!entry) continue; // member not present in /v1/models — skip rather than guess
+		if (!entry) continue; // chain member absent from /v1/models — skip rather than guess
 		const inputRate = entry.pricing ? perMtok(entry.pricing.prompt) : undefined;
 		const outputRate = entry.pricing ? perMtok(entry.pricing.completion) : undefined;
 		models.push({
@@ -314,16 +328,17 @@ export function buildMemberModels(
 	return models;
 }
 
-/** Chains first, then members (deduped by id skip — chain ids are namespaced). */
+/** Chains first, then upstream models (deduped by id — chain ids are namespaced). */
 export function buildAllModels(
 	chains: Chain[],
 	catalog: CatalogModel[],
 	gatewayId: string,
 	baseUrl: string,
-	publishMembers: boolean,
+	publishChains: boolean,
+	publishUpstream: boolean,
 ): Model<"openai-completions">[] {
-	const chainModels = buildChainModels(chains, catalog, gatewayId, baseUrl);
-	if (!publishMembers) return chainModels;
-	return [...chainModels, ...buildMemberModels(chains, catalog, gatewayId, baseUrl)];
+	const chainModels = publishChains ? buildChainModels(chains, catalog, gatewayId, baseUrl) : [];
+	const upstreamModels = publishUpstream ? buildMemberModels(chains, catalog, gatewayId, baseUrl) : [];
+	return [...chainModels, ...upstreamModels];
 }
 

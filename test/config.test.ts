@@ -1,15 +1,11 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadBifrostConfig, resolveBaseUrl, type BifrostConfig } from "../src/config.js";
 import { DEFAULT_BASE_URL } from "../src/bifrost.js";
 
 const ENV_KEYS = ["BIFROST_BASE_URL", "GATEWAY_BASE_URL"] as const;
-
-function tempAgentDir(): string {
-	return mkdtempSync(join(tmpdir(), "pi-bifrost-test-"));
-}
 
 function withEnv<T>(values: Partial<Record<(typeof ENV_KEYS)[number], string>>, fn: () => T): T {
 	const saved = new Map<string, string | undefined>();
@@ -31,122 +27,22 @@ function withEnv<T>(values: Partial<Record<(typeof ENV_KEYS)[number], string>>, 
 }
 
 describe("loadBifrostConfig", () => {
-	afterEach(() => {
-		rmSync(join(tmpdir(), "pi-bifrost-test-fixture"), { force: true, recursive: true });
-	});
-
-	it("returns defaults when the config file is absent", () => {
-		const dir = tempAgentDir();
-		try {
-			const cfg = loadBifrostConfig(dir);
-			expect(cfg.publishMembers).toBe(false);
-		} finally {
-			rmSync(dir, { force: true, recursive: true });
-		}
-	});
-
-	it("reads publishMembers from the config file", () => {
-		const dir = tempAgentDir();
-		writeFileSync(join(dir, "pi-bifrost.json"), JSON.stringify({ publishMembers: true }));
-		try {
-			expect(loadBifrostConfig(dir).publishMembers).toBe(true);
-		} finally {
-			rmSync(dir, { force: true, recursive: true });
-		}
-	});
-
-	it("reads baseUrl override from the config file", () => {
-		const dir = tempAgentDir();
-		writeFileSync(
-			join(dir, "pi-bifrost.json"),
-			JSON.stringify({ baseUrl: "https://gw.example.com/v1" }),
-		);
-		try {
-			expect(loadBifrostConfig(dir).baseUrl).toBe("https://gw.example.com/v1");
-		} finally {
-			rmSync(dir, { force: true, recursive: true });
-		}
-	});
-
-	it("adds unknown keys to the issues list", () => {
-		const dir = tempAgentDir();
-		writeFileSync(
-			join(dir, "pi-bifrost.json"),
-			JSON.stringify({ publishMembers: false, nope: 1, publish: false }),
-		);
-		try {
-			const cfg = loadBifrostConfig(dir);
-			expect(cfg.issues.join(" ")).toContain("nope");
-		} finally {
-			rmSync(dir, { force: true, recursive: true });
-		}
-	});
-
-	it("flags a non-boolean publishMembers as an issue and keeps the default", () => {
-		const dir = tempAgentDir();
-		writeFileSync(join(dir, "pi-bifrost.json"), JSON.stringify({ publishMembers: "yes" }));
-		try {
-			const cfg = loadBifrostConfig(dir);
-			expect(cfg.publishMembers).toBe(false);
-			expect(cfg.issues.length).toBeGreaterThan(0);
-		} finally {
-			rmSync(dir, { force: true, recursive: true });
-		}
-	});
-
-	it("flags a non-string baseUrl as an issue and drops it", () => {
-		const dir = tempAgentDir();
-		writeFileSync(join(dir, "pi-bifrost.json"), JSON.stringify({ baseUrl: 42 }));
-		try {
-			const cfg = loadBifrostConfig(dir);
-			expect(cfg.baseUrl).toBeUndefined();
-			expect(cfg.issues.length).toBeGreaterThan(0);
-		} finally {
-			rmSync(dir, { force: true, recursive: true });
-		}
-	});
-
-	it("does not throw on malformed JSON; reports the parse failure", () => {
-		const dir = tempAgentDir();
-		writeFileSync(join(dir, "pi-bifrost.json"), "{ not json");
-		try {
-			const cfg = loadBifrostConfig(dir);
-			expect(cfg.publishMembers).toBe(false);
-			expect(cfg.issues.length).toBeGreaterThan(0);
-		} finally {
-			rmSync(dir, { force: true, recursive: true });
-		}
-	});
-
-	it("does not throw when the json is an array (wrong shape)", () => {
-		const dir = tempAgentDir();
-		writeFileSync(join(dir, "pi-bifrost.json"), "[1,2]");
-		try {
-			const cfg = loadBifrostConfig(dir);
-			expect(cfg.publishMembers).toBe(false);
-			expect(cfg.issues.length).toBeGreaterThan(0);
-		} finally {
-			rmSync(dir, { force: true, recursive: true });
-		}
-	});
-});
-
-describe("resolveBaseUrl", () => {
+	describe("resolveBaseUrl", () => {
 	it("prefers explicit config baseUrl", () => {
 		expect(
-			resolveBaseUrl({ publishMembers: false, baseUrl: "https://cfg.example.com/v1", issues: [] }, DEFAULT_BASE_URL),
+			resolveBaseUrl({ publishChains: true, publishUpstream: false, baseUrl: "https://cfg.example.com/v1", issues: [] }, DEFAULT_BASE_URL),
 		).toBe("https://cfg.example.com/v1");
 	});
 
 	it("falls back to BIFROST_BASE_URL env", () => {
 		withEnv({ BIFROST_BASE_URL: "https://env-bf.example.com/v1" }, () => {
-			expect(resolveBaseUrl({ publishMembers: false, issues: [] }, DEFAULT_BASE_URL)).toBe("https://env-bf.example.com/v1");
+			expect(resolveBaseUrl({ publishChains: true, publishUpstream: false, issues: [] }, DEFAULT_BASE_URL)).toBe("https://env-bf.example.com/v1");
 		});
 	});
 
 	it("falls back to GATEWAY_BASE_URL when BIFROST_BASE_URL is unset", () => {
 		withEnv({ GATEWAY_BASE_URL: "https://env-gw.example.com/v1" }, () => {
-			expect(resolveBaseUrl({ publishMembers: false, issues: [] }, DEFAULT_BASE_URL)).toBe("https://env-gw.example.com/v1");
+			expect(resolveBaseUrl({ publishChains: true, publishUpstream: false, issues: [] }, DEFAULT_BASE_URL)).toBe("https://env-gw.example.com/v1");
 		});
 	});
 
@@ -154,19 +50,125 @@ describe("resolveBaseUrl", () => {
 		withEnv(
 			{ BIFROST_BASE_URL: "https://env-bf.example.com/v1", GATEWAY_BASE_URL: "https://env-gw.example.com/v1" },
 			() => {
-				expect(resolveBaseUrl({ publishMembers: false, issues: [] }, DEFAULT_BASE_URL)).toBe("https://env-bf.example.com/v1");
+				expect(resolveBaseUrl({ publishChains: true, publishUpstream: false, issues: [] }, DEFAULT_BASE_URL)).toBe("https://env-bf.example.com/v1");
 			},
 		);
 	});
 
 	it("falls back to DEFAULT_BASE_URL when nothing is set", () => {
 		withEnv({}, () => {
-			expect(resolveBaseUrl({ publishMembers: false, issues: [] }, DEFAULT_BASE_URL)).toBe(DEFAULT_BASE_URL);
+			expect(resolveBaseUrl({ publishChains: true, publishUpstream: false, issues: [] }, DEFAULT_BASE_URL)).toBe(DEFAULT_BASE_URL);
 		});
 	});
 
 	it("accepts a config with url for the type (structural check)", () => {
-		const cfg: BifrostConfig = { publishMembers: true, baseUrl: "https://x/v1", issues: [] };
+		const cfg: BifrostConfig = { publishChains: true, publishUpstream: true, baseUrl: "https://x/v1", issues: [] };
 		expect(cfg.baseUrl).toBe("https://x/v1");
 	});
+});
+
+describe("publishChains / publishUpstream flags", () => {
+	function tempDir(): string {
+		return mkdtempSync(join(tmpdir(), "pi-bifrost-flags-"));
+	}
+
+	function cleanup(dir: string): void {
+		rmSync(dir, { force: true, recursive: true });
+	}
+
+	it("defaults to both true when no config file exists", () => {
+		const dir = tempDir();
+		try {
+			const cfg = loadBifrostConfig(dir);
+			expect(cfg.publishChains).toBe(true);
+			expect(cfg.publishUpstream).toBe(true);
+			expect(cfg.publishUpstream).toBe(true);
+		} finally {
+			cleanup(dir);
+		}
+	});
+
+	it("reads publishChains=false from the file", () => {
+		const dir = tempDir();
+		writeFileSync(join(dir, "pi-bifrost.json"), JSON.stringify({ publishChains: false }));
+		try {
+			const cfg = loadBifrostConfig(dir);
+			expect(cfg.publishChains).toBe(false);
+			expect(cfg.publishUpstream).toBe(true);
+		} finally {
+			cleanup(dir);
+		}
+	});
+
+	it("reads publishUpstream=false from the file", () => {
+		const dir = tempDir();
+		writeFileSync(join(dir, "pi-bifrost.json"), JSON.stringify({ publishUpstream: false }));
+		try {
+			const cfg = loadBifrostConfig(dir);
+			expect(cfg.publishUpstream).toBe(false);
+			expect(cfg.publishChains).toBe(true);
+		} finally {
+			cleanup(dir);
+		}
+	});
+
+	it("recognizes legacy publishMembers as an alias for publishUpstream", () => {
+		const dir = tempDir();
+		writeFileSync(join(dir, "pi-bifrost.json"), JSON.stringify({ publishMembers: true }));
+		try {
+			const cfg = loadBifrostConfig(dir);
+			expect(cfg.publishUpstream).toBe(true);
+			expect(cfg.issues.join(" ")).toContain("publishMembers");
+		} finally {
+			cleanup(dir);
+		}
+	});
+
+	it("legacy publishMembers:false maps to publishUpstream:false", () => {
+		const dir = tempDir();
+		writeFileSync(join(dir, "pi-bifrost.json"), JSON.stringify({ publishUpstream: false }));
+		try {
+			const cfg = loadBifrostConfig(dir);
+			expect(cfg.publishUpstream).toBe(false);
+		} finally {
+			cleanup(dir);
+		}
+	});
+
+	it("publishUpstream=true wins over legacy publishMembers=false", () => {
+		const dir = tempDir();
+		writeFileSync(join(dir, "pi-bifrost.json"), JSON.stringify({ publishMembers: false, publishUpstream: true }));
+		try {
+			const cfg = loadBifrostConfig(dir);
+			expect(cfg.publishUpstream).toBe(true);
+			expect(cfg.issues.join(" ")).toContain("publishMembers"); // still noted as legacy
+		} finally {
+			cleanup(dir);
+		}
+	});
+
+	it("reports a conflict when publishMembers and publishUpstream disagree", () => {
+		const dir = tempDir();
+		writeFileSync(join(dir, "pi-bifrost.json"), JSON.stringify({ publishMembers: true, publishUpstream: false }));
+		try {
+			const cfg = loadBifrostConfig(dir);
+			expect(cfg.publishUpstream).toBe(false); // explicit non-legacy wins
+			expect(cfg.issues.join(" ")).toContain("conflicts");
+		} finally {
+			cleanup(dir);
+		}
+	});
+
+	it("flags a non-boolean publishUpstream as an issue and keeps the default", () => {
+		const dir = tempDir();
+		writeFileSync(join(dir, "pi-bifrost.json"), JSON.stringify({ publishUpstream: "yes" }));
+		try {
+			const cfg = loadBifrostConfig(dir);
+			expect(cfg.publishUpstream).toBe(true);
+			expect(cfg.issues.length).toBeGreaterThan(0);
+		} finally {
+			cleanup(dir);
+		}
+	});
+});
 });

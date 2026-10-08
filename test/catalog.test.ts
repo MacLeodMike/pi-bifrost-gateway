@@ -166,10 +166,10 @@ describe("buildAllModels", () => {
 	it("chains first, then members, deduped", () => {
 		const catalog = [memberModel("hyper/glm-5.3-flash")];
 		const chains = [{ name: "glm-5.3-flash", primary: "hyper/glm-5.3-flash", fallbacks: [] }];
-		const all = buildAllModels(chains, catalog, GATEWAY_ID, BASE_URL, false);
+		const all = buildAllModels(chains, catalog, GATEWAY_ID, BASE_URL, true, false);
 		expect(all.map((m) => m.id)).toEqual(["gateway/glm-5.3-flash"]);
 
-		const allWithMembers = buildAllModels(chains, catalog, GATEWAY_ID, BASE_URL, true);
+		const allWithMembers = buildAllModels(chains, catalog, GATEWAY_ID, BASE_URL, true, true);
 		expect(allWithMembers.map((m) => m.id)).toEqual(["gateway/glm-5.3-flash", "hyper/glm-5.3-flash"]);
 	});
 });
