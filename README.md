@@ -21,8 +21,9 @@ From that it emits one pi model per chain (`gateway/<chain>`, e.g.
 
 ## Auth
 
-Stored credential in `auth.json` for provider `gateway`, or `GATEWAY_API_KEY`
-env. `/login gateway` prompts for the key.
+Stored credential in `auth.json` for provider `bifrost`, or `BIFROST_API_KEY`
+env. `/login bifrost` prompts for the key. A stored credential under the
+legacy `gateway` provider id is migrated to `bifrost` on load.
 
 ## Configuration
 
@@ -50,4 +51,4 @@ Member models (when published) carry real `$/Mtok` rates from `/v1/models`.
 
 ## Commands
 
-`/bifrost-gateway` — auth, baseUrl, config, and loaded-model status.
+`/bifrost` — auth, baseUrl, config, and loaded-model status.

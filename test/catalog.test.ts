@@ -8,7 +8,7 @@ import {
 } from "../src/catalog.js";
 import type { CatalogModel, RoutingRule } from "../src/catalog.js";
 
-const GATEWAY_ID = "gateway";
+const GATEWAY_ID = "bifrost";
 
 /* ---------- fixtures ---------- */
 
@@ -30,7 +30,7 @@ function chainRule(name: string, target: string, fallbacks: string[], cel?: stri
 		id: `vk-pi-chain-${name}`,
 		name: `Chain: ${name}`,
 		enabled: true,
-		cel_expression: cel ?? `model == "${name}" || model == "gateway/${name}"`,
+		cel_expression: cel ?? `model == "${name}" || model == "bifrost/${name}"`,
 		targets: [(() => {
 			const [first, rest] = [target.split("/")[0] ?? "", target.split("/").slice(1).join("/")];
 			return rest.length > 0
@@ -100,7 +100,7 @@ describe("wireRulesToChains", () => {
 });
 
 describe("buildChainModels", () => {
-	it("builds gateway/<chain> entries with min context window and zero cost", () => {
+	it("builds bifrost/<chain> entries with min context window and zero cost", () => {
 		const catalog = [
 			memberModel("hyper/glm-5.3-flash", { context_length: 1_000_000 }),
 			memberModel("pareto/glm-5.3-flash", { context_length: 500_000 }),
@@ -109,7 +109,7 @@ describe("buildChainModels", () => {
 		const models = buildChainModels(chains, catalog, GATEWAY_ID, BASE_URL);
 		expect(models).toHaveLength(1);
 		const m = models[0]!;
-		expect(m.id).toBe("gateway/glm-5.3-flash");
+		expect(m.id).toBe("bifrost/glm-5.3-flash");
 		expect(m.provider).toBe(GATEWAY_ID);
 		expect(m.baseUrl).toBe(BASE_URL);
 		expect(m.contextWindow).toBe(500_000);
@@ -136,7 +136,7 @@ describe("buildChainModels", () => {
 			GATEWAY_ID,
 			BASE_URL,
 		);
-		expect(models[0]?.id).toBe("gateway/glm-5.3-flash");
+		expect(models[0]?.id).toBe("bifrost/glm-5.3-flash");
 		expect(models[0]?.contextWindow).toBe(128_000);
 	});
 });
@@ -167,9 +167,36 @@ describe("buildAllModels", () => {
 		const catalog = [memberModel("hyper/glm-5.3-flash")];
 		const chains = [{ name: "glm-5.3-flash", primary: "hyper/glm-5.3-flash", fallbacks: [] }];
 		const all = buildAllModels(chains, catalog, GATEWAY_ID, BASE_URL, true, false);
-		expect(all.map((m) => m.id)).toEqual(["gateway/glm-5.3-flash"]);
+		expect(all.map((m) => m.id)).toEqual(["bifrost/glm-5.3-flash"]);
 
 		const allWithMembers = buildAllModels(chains, catalog, GATEWAY_ID, BASE_URL, true, true);
-		expect(allWithMembers.map((m) => m.id)).toEqual(["gateway/glm-5.3-flash", "hyper/glm-5.3-flash"]);
+		expect(allWithMembers.map((m) => m.id)).toEqual(["bifrost/glm-5.3-flash", "hyper/glm-5.3-flash"]);
+	});
+});
+
+describe("chain id prefix (bifrost)", () => {
+	it("accepts a 3-arm cel (bare, gateway/, bifrost/) and strips managed prefixes", () => {
+		const rules = [
+			chainRule("glm-5.3-flash", "hyper/glm-5.3-flash", [], 'model == "glm-5.3-flash" || model == "gateway/glm-5.3-flash" || model == "bifrost/glm-5.3-flash"'),
+		];
+		const chains = wireRulesToChains(rules);
+		expect(chains).toHaveLength(1);
+		expect(chains[0]?.name).toBe("glm-5.3-flash");
+	});
+
+	it("rejects cels with 2 model == arms that do not share one bare name", () => {
+		const rules = [
+			chainRule("weird", "hyper/x", [], 'model == "glm-5.3-flash" || model == "kimi-k3"'),
+		];
+		expect(wireRulesToChains(rules)).toHaveLength(0);
+	});
+
+	it("accepts a gateway-prefixed-only cel (2 arms, gateway arm + bare)", () => {
+		const rules = [
+			chainRule("glm-5.2", "hyper/glm-5.2", [], 'model == "glm-5.2" || model == "gateway/glm-5.2"'),
+		];
+		const chains = wireRulesToChains(rules);
+		expect(chains).toHaveLength(1);
+		expect(chains[0]?.name).toBe("glm-5.2");
 	});
 });

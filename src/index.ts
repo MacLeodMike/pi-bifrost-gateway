@@ -81,13 +81,13 @@ export function bifrostProvider(options: { publishChains: boolean; publishUpstre
 export function registerBifrostProvider(pi: BifrostRegistrationPi, provider: Provider): void {
 	pi.registerProvider(provider);
 
-	pi.registerCommand("bifrost-gateway", {
-		description: "Show Bifrost gateway provider status (auth, config, model count)",
+	pi.registerCommand("bifrost", {
+		description: "Show Bifrost provider status (auth, config, chains/upstream)",
 		handler: async (_args, ctx) => {
 			const config = loadBifrostConfig(defaultAgentDir());
 			const status = ctx.modelRegistry.getProviderAuthStatus(PROVIDER_ID);
 			const lines = [
-				`auth: ${status.configured ? "configured" : "missing (set GATEWAY_API_KEY or run /login gateway)"}`,
+				`auth: ${status.configured ? "configured" : "missing (set BIFROST_API_KEY or run /login bifrost)"}`,
 				`baseUrl: ${resolveBaseUrl(config, DEFAULT_BASE_URL)}`,
 				`publishChains: ${config.publishChains}, publishUpstream: ${config.publishUpstream}`,
 			];
@@ -98,14 +98,47 @@ export function registerBifrostProvider(pi: BifrostRegistrationPi, provider: Pro
 	});
 }
 
+/** Best-effort auth.json migration; never throws into extension loading. */
+function migrateStoredCredential(): void {
+	try {
+		const authPath = join(defaultAgentDir(), "auth.json");
+		const parsed = JSON.parse(readFileSync(authPath, "utf8")) as Record<string, { type: string; key?: string }>;
+		if (migrateLegacyCredential(parsed)) {
+			writeFileSync(authPath, `${JSON.stringify(parsed, null, "\t")}\n`);
+		}
+	} catch {
+		// unreadable or absent auth.json — nothing to migrate
+	}
+}
+
 /** Agent dir where pi-bifrost.json lives; overridable for tests and CLI use. */
 export function defaultAgentDir(): string {
 	if (process.env.PI_AGENT_DIR) return process.env.PI_AGENT_DIR;
 	return join(homedir(), ".pi", "agent");
 }
 
+import { readFileSync, writeFileSync } from "node:fs";
+
+/**
+ * One-time migration: copy a stored api_key from the legacy `gateway`
+ * provider id to `bifrost` when `bifrost` has no credential of its own.
+ * Mutates and persists the parsed auth.json object; returns whether
+ * anything was written.
+ */
+export function migrateLegacyCredential(
+	store: Record<string, { type: string; key?: string }>,
+): boolean {
+	const legacy = store["gateway"];
+	if (legacy?.type !== "api_key" || !legacy.key) return false;
+	const existing = store[PROVIDER_ID];
+	if (existing?.type === "api_key" && existing.key) return false;
+	store[PROVIDER_ID] = { type: "api_key", key: legacy.key };
+	return true;
+}
+
 /** Pi extension entrypoint. */
 export default function (pi: ExtensionAPI): void {
+	migrateStoredCredential();
 	const config = loadBifrostConfig(defaultAgentDir());
 	const provider = bifrostProvider({
 		publishChains: config.publishChains,

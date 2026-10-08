@@ -192,21 +192,26 @@ export async function wireDiscovery(
 
 /* ---------- chain decoding (pure) ---------- */
 
+/** Managed model-id prefixes that strip to the bare chain name. */
+const MANAGED_PREFIXES = ["bifrost", "gateway"];
+
 /**
  * Extract a chain model name from a routing rule's CEL expression.
- * Recognizes the chains-first convention `model == "x" || model == "gateway/x"`
- * (either side), picking the bare name. Returns undefined for anything
- * else (expression-based or multi-name rules) — those are not chain rules.
+ * Recognizes `model == "x"` arms and strips managed prefixes (`bifrost/`,
+ * legacy `gateway/`) from each name. Every arm must reduce to one canonical
+ * bare name — the chains-first convention. Anything else is not a chain rule.
  */
 export function chainNameFromCel(cel: string): string | undefined {
-	const bare = cel.match(/model\s*==\s*"([^"]+)"/g);
-	if (!bare || bare.length !== 2) return undefined;
-	const names = bare.map((m) => m.replace(/.*"([^"]+)".*/, "$1"));
-	const [a, b] = names as [string, string];
-	if (a.startsWith(`${PROVIDER_ID}/`) && !b.startsWith(`${PROVIDER_ID}/`)) return b;
-	if (b.startsWith(`${PROVIDER_ID}/`) && !a.startsWith(`${PROVIDER_ID}/`)) return a;
-	// Both bare+gateway w/o prefix or two identical names: prefer the bare one.
-	return a === b ? a : undefined;
+	const names = [...cel.matchAll(/model\s*==\s*"([^"]+)"/g)].map((m) => m[1]!);
+	if (names.length < 2) return undefined;
+	const canonical = new Set(
+		names.map((n) => {
+			const idx = n.indexOf("/");
+			const prefix = idx > 0 ? n.slice(0, idx) : "";
+			return MANAGED_PREFIXES.includes(prefix) ? n.slice(idx + 1) : n;
+		}),
+	);
+	return canonical.size === 1 ? [...canonical][0] : undefined;
 }
 
 /** Decode enabled, unambiguous chain rules. Order follows rule priority. */
@@ -247,11 +252,11 @@ function thinkingLevelMap(): ThinkingLevelMap {
 	return map;
 }
 
-/** Build one gateway/<chain> chat model per chain. Cost is 0 by design. */
+/** Build one bifrost/<chain> chat model per chain. Cost is 0 by design. */
 export function buildChainModels(
 	chains: Chain[],
 	catalog: CatalogModel[],
-	gatewayId: string,
+	providerSlug: string,
 	baseUrl: string,
 ): Model<"openai-completions">[] {
 	const byId = new Map(catalog.map((m) => [m.id, m] as const));
@@ -262,10 +267,10 @@ export function buildChainModels(
 			.filter((v): v is number => typeof v === "number");
 		const contextWindow = contexts.length > 0 ? Math.min(...contexts) : CONTEXT_WINDOW_FALLBACK;
 		const model: Model<"openai-completions"> = {
-			id: `${gatewayId}/${chain.name}`,
+			id: `${providerSlug}/${chain.name}`,
 			name: chain.name,
 			api: "openai-completions",
-			provider: gatewayId,
+			provider: providerSlug,
 			baseUrl,
 			input: ["text"],
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -285,7 +290,7 @@ export function buildChainModels(
 export function buildMemberModels(
 	chains: Chain[],
 	catalog: CatalogModel[],
-	gatewayId: string,
+	providerSlug: string,
 	baseUrl: string,
 ): Model<"openai-completions">[] {
 	const memberIds: string[] = [];
@@ -315,7 +320,7 @@ export function buildMemberModels(
 			id: memberId,
 			name: memberId,
 			api: "openai-completions",
-			provider: gatewayId,
+			provider: providerSlug,
 			baseUrl,
 			input: ["text"],
 			cost: { input: inputRate ?? 0, output: outputRate ?? 0, cacheRead: 0, cacheWrite: 0 },
@@ -332,13 +337,13 @@ export function buildMemberModels(
 export function buildAllModels(
 	chains: Chain[],
 	catalog: CatalogModel[],
-	gatewayId: string,
+	providerSlug: string,
 	baseUrl: string,
 	publishChains: boolean,
 	publishUpstream: boolean,
 ): Model<"openai-completions">[] {
-	const chainModels = publishChains ? buildChainModels(chains, catalog, gatewayId, baseUrl) : [];
-	const upstreamModels = publishUpstream ? buildMemberModels(chains, catalog, gatewayId, baseUrl) : [];
+	const chainModels = publishChains ? buildChainModels(chains, catalog, providerSlug, baseUrl) : [];
+	const upstreamModels = publishUpstream ? buildMemberModels(chains, catalog, providerSlug, baseUrl) : [];
 	return [...chainModels, ...upstreamModels];
 }
 

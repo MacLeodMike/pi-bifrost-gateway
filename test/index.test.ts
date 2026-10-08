@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Model } from "@earendil-works/pi-ai";
-import { bifrostProvider, discoverModels, registerBifrostProvider, type BifrostRegistrationPi } from "../src/index.js";
+import { bifrostProvider, discoverModels, migrateLegacyCredential, registerBifrostProvider, type BifrostRegistrationPi } from "../src/index.js";
 
 const BASE_URL = "https://llm-gateway.example.com/v1";
 
@@ -20,13 +20,13 @@ function chainModel(name: string): Model<"openai-completions"> {
 }
 
 describe("bifrostProvider", () => {
-	it("builds a provider named gateway with retry-through-openai-completions", () => {
+	it("builds a provider named bifrost with retry-through-openai-completions", () => {
 		const provider = bifrostProvider({ publishChains: true, publishUpstream: false, baseUrl: BASE_URL }) as unknown as {
 			id: string;
 			baseUrl?: string;
 			getModels?: () => unknown;
 		};
-		expect(provider.id).toBe("gateway");
+		expect(provider.id).toBe("bifrost");
 		expect(provider.baseUrl).toBe(BASE_URL);
 	});
 });
@@ -46,7 +46,7 @@ describe("registerBifrostProvider", () => {
 		registerBifrostProvider(pi, provider);
 
 		expect(registered).toHaveLength(1);
-		expect(commands).toEqual(["bifrost-gateway"]);
+		expect(commands).toEqual(["bifrost"]);
 	});
 
 	it("the status command notifies auth/config/model count via ctx", async () => {
@@ -67,7 +67,7 @@ describe("registerBifrostProvider", () => {
 			modelRegistry: {
 				getProviderAuthStatus: () => ({ configured: true }),
 				getModelsOfType: (type: string, providerName: string) =>
-					type === "chat" && providerName === "gateway" ? chatModels : [],
+					type === "chat" && providerName === "bifrost" ? chatModels : [],
 			},
 		});
 		expect(notifications).toHaveLength(1);
@@ -81,5 +81,33 @@ describe("discoverModels", () => {
 	it("returns empty when token or baseUrl is missing", async () => {
 		expect(await discoverModels(undefined, BASE_URL, true, false)).toEqual([]);
 		expect(await discoverModels("token", undefined, true, false)).toEqual([]);
+	});
+});
+
+describe("migrateLegacyCredential", () => {
+	it("copies gateway api_key to bifrost when bifrost is absent", () => {
+		const store: Record<string, unknown> = { gateway: { type: "api_key", key: "vk-a" } };
+		const changed = migrateLegacyCredential(store as Record<string, { type: string; key?: string }>);
+		expect(changed).toBe(true);
+		expect(store.bifrost).toEqual({ type: "api_key", key: "vk-a" });
+	});
+
+	it("does nothing when bifrost already has a credential", () => {
+		const store = {
+			gateway: { type: "api_key", key: "old" },
+			bifrost: { type: "api_key", key: "new" },
+		} as unknown as Record<string, { type: string; key?: string }>;
+		expect(migrateLegacyCredential(store)).toBe(false);
+		expect(store.gateway.key).toBe("old");
+	});
+
+	it("does nothing when there is no gateway entry", () => {
+		const store = {} as Record<string, { type: string; key?: string }>;
+		expect(migrateLegacyCredential(store)).toBe(false);
+	});
+
+	it("does nothing when the gateway entry is not an api_key", () => {
+		const store = { gateway: { type: "oauth", key: "x" } } as unknown as Record<string, { type: string; key?: string }>;
+		expect(migrateLegacyCredential(store)).toBe(false);
 	});
 });
