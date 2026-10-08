@@ -1,3 +1,4 @@
 .vitest/
 node_modules/
 .pi-warden/
+*.tgz
