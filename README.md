@@ -9,6 +9,34 @@ discovery via the Bifrost management API). It fills the same provider slot
 as [lxdlam/pi-bifrost-provider](https://github.com/lxdlam/pi-bifrost-provider)
 (standalone-instance flavor) — install one OR the other, not both.
 
+## Install
+
+From npm:
+
+```sh
+pi install npm:pi-bifrost-gateway
+```
+
+Or from a local checkout:
+
+```sh
+pi install ~/repos/pi-bifrost-gateway
+```
+
+Then configure it (`~/.pi/agent/pi-bifrost-gateway.json`) — there is **no
+built-in gateway URL**, so an unconfigured install registers zero models:
+
+```json
+{
+  "baseUrl": "https://your-bifrost.example/v1",
+  "publishChains": true,
+  "publishUpstream": false
+}
+```
+
+Auth: `/login bifrost` (stores the virtual-key value in `auth.json`) or the
+`BIFROST_API_KEY` env var.
+
 ## How it works
 
 `fetchModels` (runs on startup, `/model`, `/reload`, `/login`) does, live:
