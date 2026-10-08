@@ -149,11 +149,13 @@ export function loadBifrostConfig(agentDir: string): BifrostConfig {
  * Effective gateway base URL: explicit config value, then BIFROST_BASE_URL,
  * then nothing — the caller supplies the built-in default URL.
  */
-export function resolveBaseUrl(config: BifrostConfig, fallback: string): string {
+export function resolveBaseUrl(config: BifrostConfig): string | undefined {
 	if (config.baseUrl) return config.baseUrl;
 	for (const key of URL_KEYS) {
 		const value = (globalThis.process?.env?.[key] ?? "").trim();
 		if (value.length > 0) return value;
 	}
-	return fallback;
+	// Explicitly undefined, not a default: an unconfigured plugin must
+	// resolve to zero models (see bifrost.ts) rather than any baked-in URL.
+	return undefined;
 }

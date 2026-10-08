@@ -4,7 +4,7 @@ import { createProvider, type Model, type Provider } from "@earendil-works/pi-ai
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 // pi's extension loader doesn't virtualize lazy API implementation subpaths yet
 import { envApiKeyAuth, openAICompletionsApi } from "@earendil-works/pi-ai/compat";
-import { AUTH_ENV_KEYS, DEFAULT_BASE_URL, PROVIDER_DISPLAY_NAME, PROVIDER_ID } from "./bifrost.js";
+import { AUTH_ENV_KEYS, PROVIDER_DISPLAY_NAME, PROVIDER_ID } from "./bifrost.js";
 import { loadBifrostConfig, resolveBaseUrl } from "./config.js";
 import { buildAllModels, wireDiscovery, wireRulesToChains, wireScopeId } from "./catalog.js";
 
@@ -105,7 +105,7 @@ export function registerBifrostProvider(pi: BifrostRegistrationPi, provider: Pro
 			const status = ctx.modelRegistry.getProviderAuthStatus(PROVIDER_ID);
 			const lines = [
 				`auth: ${status.configured ? "configured" : "missing (set BIFROST_API_KEY or run /login bifrost)"}`,
-				`baseUrl: ${resolveBaseUrl(config, DEFAULT_BASE_URL)}`,
+				`baseUrl: ${resolveBaseUrl(config) ?? "<not configured — set baseUrl in pi-bifrost-gateway.json or BIFROST_BASE_URL>"}`,
 				`publishChains: ${config.publishChains}, publishUpstream: ${config.publishUpstream}`,
 			];
 			if (config.issues.length > 0) lines.push(`config issues: ${config.issues.join("; ")}`);
@@ -157,10 +157,17 @@ export function migrateLegacyCredential(
 export default function (pi: ExtensionAPI): void {
 	migrateStoredCredential();
 	const config = loadBifrostConfig(defaultAgentDir());
+const resolvedBaseUrl = resolveBaseUrl(config);
+	if (!resolvedBaseUrl) {
+		// Registering a provider whose discovery can never run protects no
+		// one: skip registration entirely so pi shows no bifrost models and
+		// the unconfigured state is visible in /model instead.
+		return;
+	}
 	const provider = bifrostProvider({
 		publishChains: config.publishChains,
 		publishUpstream: config.publishUpstream,
-		baseUrl: resolveBaseUrl(config, DEFAULT_BASE_URL),
+		baseUrl: resolvedBaseUrl,
 		thinkingOverrides: config.thinkingOverrides,
 	});
 	registerBifrostProvider(pi, provider);

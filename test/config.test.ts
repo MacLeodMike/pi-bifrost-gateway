@@ -3,7 +3,6 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadBifrostConfig, resolveBaseUrl, type BifrostConfig } from "../src/config.js";
-import { DEFAULT_BASE_URL } from "../src/bifrost.js";
 
 const ENV_KEYS = ["BIFROST_BASE_URL"] as const;
 
@@ -30,19 +29,19 @@ describe("loadBifrostConfig", () => {
 	describe("resolveBaseUrl", () => {
 	it("prefers explicit config baseUrl", () => {
 		expect(
-			resolveBaseUrl({ publishChains: true, publishUpstream: false, baseUrl: "https://cfg.example.com/v1", issues: [] }, DEFAULT_BASE_URL),
+			resolveBaseUrl({ publishChains: true, publishUpstream: false, baseUrl: "https://cfg.example.com/v1", issues: [] }),
 		).toBe("https://cfg.example.com/v1");
 	});
 
 	it("falls back to BIFROST_BASE_URL env", () => {
 		withEnv({ BIFROST_BASE_URL: "https://env-bf.example.com/v1" }, () => {
-			expect(resolveBaseUrl({ publishChains: true, publishUpstream: false, issues: [] }, DEFAULT_BASE_URL)).toBe("https://env-bf.example.com/v1");
+			expect(resolveBaseUrl({ publishChains: true, publishUpstream: false, issues: [] })).toBe("https://env-bf.example.com/v1");
 		});
 	});
 
-	it("falls back to DEFAULT_BASE_URL when nothing is set", () => {
+	it("is undefined when nothing is set — no baked-in URL", () => {
 		withEnv({}, () => {
-			expect(resolveBaseUrl({ publishChains: true, publishUpstream: false, issues: [] }, DEFAULT_BASE_URL)).toBe(DEFAULT_BASE_URL);
+			expect(resolveBaseUrl({ publishChains: true, publishUpstream: false, issues: [] })).toBeUndefined();
 		});
 	});
 
