@@ -31,7 +31,12 @@ function chainRule(name: string, target: string, fallbacks: string[], cel?: stri
 		name: `Chain: ${name}`,
 		enabled: true,
 		cel_expression: cel ?? `model == "${name}" || model == "gateway/${name}"`,
-		targets: [{ provider: target.split("/")[0] ?? "", model: target, weight: 1 }],
+		targets: [(() => {
+			const [first, rest] = [target.split("/")[0] ?? "", target.split("/").slice(1).join("/")];
+			return rest.length > 0
+				? { provider: first, model: rest, weight: 1 }
+				: { provider: "", model: target, weight: 1 };
+		})()],
 		fallbacks,
 		scope: "virtual_key",
 		scope_id: "vk-pi",

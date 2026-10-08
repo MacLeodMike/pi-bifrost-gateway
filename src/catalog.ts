@@ -121,17 +121,23 @@ export function wireCatalogToModels(envelope: { data: CatalogModel[] }): Catalog
 /** GET gateway /v1/models with the VK — the full member catalog with pricing. */
 export async function wireCatalog(
 	token: string,
+	baseUrl: string,
 	signal?: AbortSignal,
 	opts?: FetchJsonOptions,
 ): Promise<CatalogModel[]> {
 	const envelope = await fetchJson(
-		INFERENCE_PATH_MODELS,
+		`${baseUrl.replace(/\/$/, "")}/${INFERENCE_PATH_MODELS}`,
 		token,
 		ModelsEnvelopeValidator,
 		signal,
 		opts,
 	);
 	return wireCatalogToModels(envelope as { data: CatalogModel[] });
+}
+
+/** Resolve the management-plane base URL from the inference /v1 base URL. */
+export function managementBase(baseUrl: string): string {
+	return baseUrl.replace(/\/v1\/?$/, "");
 }
 
 /**
@@ -141,16 +147,12 @@ export async function wireCatalog(
  */
 export async function wireScopeId(
 	token: string,
+	baseUrl: string,
 	signal?: AbortSignal,
 	opts?: FetchJsonOptions,
 ): Promise<string | undefined> {
-	const envelope = await fetchJson(
-		MANAGEMENT_PATH_VIRTUAL_KEYS,
-		token,
-		VirtualKeysEnvelopeValidator,
-		signal,
-		opts,
-	);
+	const url = `${managementBase(baseUrl)}${MANAGEMENT_PATH_VIRTUAL_KEYS}`;
+	const envelope = await fetchJson(url, token, VirtualKeysEnvelopeValidator, signal, opts);
 	const keys = (envelope as { virtual_keys: VirtualKey[] }).virtual_keys;
 	const match = keys.find((vk) => vk.value === token);
 	return match?.id;
@@ -163,11 +165,12 @@ export async function wireScopeId(
  */
 export async function wireRules(
 	token: string,
+	baseUrl: string,
 	scopeId: string,
 	signal?: AbortSignal,
 	opts?: FetchJsonOptions,
 ): Promise<RoutingRule[]> {
-	const url = `${MANAGEMENT_PATH_ROUTING_RULES}?scope=virtual_key&scope_id=${encodeURIComponent(scopeId)}`;
+	const url = `${managementBase(baseUrl)}${MANAGEMENT_PATH_ROUTING_RULES}?scope=virtual_key&scope_id=${encodeURIComponent(scopeId)}`;
 	const envelope = await fetchJson(url, token, RulesEnvelopeValidator, signal, opts);
 	return (envelope as { rules: RoutingRule[] }).rules;
 }
@@ -175,13 +178,14 @@ export async function wireRules(
 /** Full discovery: catalog + rules for the VK, in parallel where possible. */
 export async function wireDiscovery(
 	token: string,
+	baseUrl: string,
 	scopeId: string,
 	signal?: AbortSignal,
 	opts?: FetchJsonOptions,
 ): Promise<{ catalog: CatalogModel[]; rules: RoutingRule[] }> {
 	const [catalog, rules] = await Promise.all([
-		wireCatalog(token, signal, opts),
-		wireRules(token, scopeId, signal, opts),
+		wireCatalog(token, baseUrl, signal, opts),
+		wireRules(token, baseUrl, scopeId, signal, opts),
 	]);
 	return { catalog, rules };
 }
@@ -212,11 +216,14 @@ export function wireRulesToChains(rules: RoutingRule[]): Chain[] {
 		if (rule.enabled === false) continue;
 		const name = chainNameFromCel(rule.cel_expression);
 		if (!name) continue;
-		const targetModels = new Set(
-			rule.targets.map((t) => t.model).filter((m): m is string => typeof m === "string" && m.length > 0),
+		const primaries = new Set(
+			rule.targets.map((t) => {
+				if (typeof t.model !== "string" || t.model.length === 0) return null;
+				return typeof t.provider === "string" && t.provider.length > 0 ? `${t.provider}/${t.model}` : t.model;
+			}).filter((m): m is string => typeof m === "string"),
 		);
-		if (targetModels.size !== 1) continue; // zero or multiple pinned models = ambiguous
-		const primary = [...targetModels][0]!;
+		if (primaries.size !== 1) continue; // zero or multiple pinned models = ambiguous
+		const primary = [...primaries][0]!;
 		usable.push({
 			chain: { name, primary, fallbacks: rule.fallbacks ?? [] },
 			priority: rule.priority ?? 0,

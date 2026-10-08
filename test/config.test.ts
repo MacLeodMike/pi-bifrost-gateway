@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadBifrostConfig, resolveBaseUrl, type BifrostConfig } from "../src/config.js";
+import { DEFAULT_BASE_URL } from "../src/bifrost.js";
 
 const ENV_KEYS = ["BIFROST_BASE_URL", "GATEWAY_BASE_URL"] as const;
 
@@ -133,19 +134,19 @@ describe("loadBifrostConfig", () => {
 describe("resolveBaseUrl", () => {
 	it("prefers explicit config baseUrl", () => {
 		expect(
-			resolveBaseUrl({ publishMembers: false, baseUrl: "https://cfg.example.com/v1", issues: [] }),
+			resolveBaseUrl({ publishMembers: false, baseUrl: "https://cfg.example.com/v1", issues: [] }, DEFAULT_BASE_URL),
 		).toBe("https://cfg.example.com/v1");
 	});
 
 	it("falls back to BIFROST_BASE_URL env", () => {
 		withEnv({ BIFROST_BASE_URL: "https://env-bf.example.com/v1" }, () => {
-			expect(resolveBaseUrl({ publishMembers: false, issues: [] })).toBe("https://env-bf.example.com/v1");
+			expect(resolveBaseUrl({ publishMembers: false, issues: [] }, DEFAULT_BASE_URL)).toBe("https://env-bf.example.com/v1");
 		});
 	});
 
 	it("falls back to GATEWAY_BASE_URL when BIFROST_BASE_URL is unset", () => {
 		withEnv({ GATEWAY_BASE_URL: "https://env-gw.example.com/v1" }, () => {
-			expect(resolveBaseUrl({ publishMembers: false, issues: [] })).toBe("https://env-gw.example.com/v1");
+			expect(resolveBaseUrl({ publishMembers: false, issues: [] }, DEFAULT_BASE_URL)).toBe("https://env-gw.example.com/v1");
 		});
 	});
 
@@ -153,14 +154,14 @@ describe("resolveBaseUrl", () => {
 		withEnv(
 			{ BIFROST_BASE_URL: "https://env-bf.example.com/v1", GATEWAY_BASE_URL: "https://env-gw.example.com/v1" },
 			() => {
-				expect(resolveBaseUrl({ publishMembers: false, issues: [] })).toBe("https://env-bf.example.com/v1");
+				expect(resolveBaseUrl({ publishMembers: false, issues: [] }, DEFAULT_BASE_URL)).toBe("https://env-bf.example.com/v1");
 			},
 		);
 	});
 
-	it("returns a typed error reference (undefined) when nothing is set", () => {
+	it("falls back to DEFAULT_BASE_URL when nothing is set", () => {
 		withEnv({}, () => {
-			expect(resolveBaseUrl({ publishMembers: false, issues: [] })).toBeUndefined();
+			expect(resolveBaseUrl({ publishMembers: false, issues: [] }, DEFAULT_BASE_URL)).toBe(DEFAULT_BASE_URL);
 		});
 	});
 

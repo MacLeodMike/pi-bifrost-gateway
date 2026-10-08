@@ -66,11 +66,11 @@ export function loadBifrostConfig(agentDir: string): BifrostConfig {
  * Effective gateway base URL: explicit config value, then BIFROST_BASE_URL,
  * then GATEWAY_BASE_URL. `undefined` when nothing is configured.
  */
-export function resolveBaseUrl(config: BifrostConfig): string | undefined {
+export function resolveBaseUrl(config: BifrostConfig, fallback: string): string {
 	if (config.baseUrl) return config.baseUrl;
 	for (const key of URL_KEYS) {
 		const value = (globalThis.process?.env?.[key] ?? "").trim();
 		if (value.length > 0) return value;
 	}
-	return undefined;
+	return fallback;
 }
