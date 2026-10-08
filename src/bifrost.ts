@@ -7,10 +7,12 @@ export const PROVIDER_DISPLAY_NAME = "Bifrost Gateway";
 export const INFERENCE_PATH_MODELS = "models";
 
 /**
- * Deployed gateway URL (tailscale L7 ingress, LE cert). Overridable via
- * config baseUrl, then BIFROST_BASE_URL env.
+ * No built-in default URL. The gateway address is user configuration:
+ * baseUrl in the config file, else BIFROST_BASE_URL env, else unset. An
+ * unconfigured plugin must resolve to zero models (no network), never to a
+ * baked-in deployment address that would silently route another user's
+ * inference through a gateway they don't own.
  */
-export const DEFAULT_BASE_URL = "https://bifrost.example.invalid/v1";
 
 /** Management API paths (2026-10-08 live-verified on Bifrost v2.2.x). */
 export const MANAGEMENT_PATH_VIRTUAL_KEYS = "/api/governance/virtual-keys";
