@@ -111,7 +111,7 @@ function migrateStoredCredential(): void {
 	}
 }
 
-/** Agent dir where pi-bifrost.json lives; overridable for tests and CLI use. */
+/** Agent dir where pi-bifrost-gateway.json lives; overridable for tests and CLI use. */
 export function defaultAgentDir(): string {
 	if (process.env.PI_AGENT_DIR) return process.env.PI_AGENT_DIR;
 	return join(homedir(), ".pi", "agent");

@@ -54,7 +54,7 @@ describe("loadBifrostConfig", () => {
 
 describe("publishChains / publishUpstream flags", () => {
 	function tempDir(): string {
-		return mkdtempSync(join(tmpdir(), "pi-bifrost-flags-"));
+		return mkdtempSync(join(tmpdir(), "pi-bifrost-gateway-flags-"));
 	}
 
 	function cleanup(dir: string): void {
@@ -75,7 +75,7 @@ describe("publishChains / publishUpstream flags", () => {
 
 	it("reads publishChains=false from the file", () => {
 		const dir = tempDir();
-		writeFileSync(join(dir, "pi-bifrost.json"), JSON.stringify({ publishChains: false }));
+		writeFileSync(join(dir, "pi-bifrost-gateway.json"), JSON.stringify({ publishChains: false }));
 		try {
 			const cfg = loadBifrostConfig(dir);
 			expect(cfg.publishChains).toBe(false);
@@ -87,7 +87,7 @@ describe("publishChains / publishUpstream flags", () => {
 
 	it("reads publishUpstream=false from the file", () => {
 		const dir = tempDir();
-		writeFileSync(join(dir, "pi-bifrost.json"), JSON.stringify({ publishUpstream: false }));
+		writeFileSync(join(dir, "pi-bifrost-gateway.json"), JSON.stringify({ publishUpstream: false }));
 		try {
 			const cfg = loadBifrostConfig(dir);
 			expect(cfg.publishUpstream).toBe(false);
@@ -99,7 +99,7 @@ describe("publishChains / publishUpstream flags", () => {
 
 	it("recognizes legacy publishMembers as an alias for publishUpstream", () => {
 		const dir = tempDir();
-		writeFileSync(join(dir, "pi-bifrost.json"), JSON.stringify({ publishMembers: true }));
+		writeFileSync(join(dir, "pi-bifrost-gateway.json"), JSON.stringify({ publishMembers: true }));
 		try {
 			const cfg = loadBifrostConfig(dir);
 			expect(cfg.publishUpstream).toBe(true);
@@ -111,7 +111,7 @@ describe("publishChains / publishUpstream flags", () => {
 
 	it("legacy publishMembers:false maps to publishUpstream:false", () => {
 		const dir = tempDir();
-		writeFileSync(join(dir, "pi-bifrost.json"), JSON.stringify({ publishUpstream: false }));
+		writeFileSync(join(dir, "pi-bifrost-gateway.json"), JSON.stringify({ publishUpstream: false }));
 		try {
 			const cfg = loadBifrostConfig(dir);
 			expect(cfg.publishUpstream).toBe(false);
@@ -122,7 +122,7 @@ describe("publishChains / publishUpstream flags", () => {
 
 	it("publishUpstream=true wins over legacy publishMembers=false", () => {
 		const dir = tempDir();
-		writeFileSync(join(dir, "pi-bifrost.json"), JSON.stringify({ publishMembers: false, publishUpstream: true }));
+		writeFileSync(join(dir, "pi-bifrost-gateway.json"), JSON.stringify({ publishMembers: false, publishUpstream: true }));
 		try {
 			const cfg = loadBifrostConfig(dir);
 			expect(cfg.publishUpstream).toBe(true);
@@ -134,7 +134,7 @@ describe("publishChains / publishUpstream flags", () => {
 
 	it("reports a conflict when publishMembers and publishUpstream disagree", () => {
 		const dir = tempDir();
-		writeFileSync(join(dir, "pi-bifrost.json"), JSON.stringify({ publishMembers: true, publishUpstream: false }));
+		writeFileSync(join(dir, "pi-bifrost-gateway.json"), JSON.stringify({ publishMembers: true, publishUpstream: false }));
 		try {
 			const cfg = loadBifrostConfig(dir);
 			expect(cfg.publishUpstream).toBe(false); // explicit non-legacy wins
@@ -146,7 +146,7 @@ describe("publishChains / publishUpstream flags", () => {
 
 	it("flags a non-boolean publishUpstream as an issue and keeps the default", () => {
 		const dir = tempDir();
-		writeFileSync(join(dir, "pi-bifrost.json"), JSON.stringify({ publishUpstream: "yes" }));
+		writeFileSync(join(dir, "pi-bifrost-gateway.json"), JSON.stringify({ publishUpstream: "yes" }));
 		try {
 			const cfg = loadBifrostConfig(dir);
 			expect(cfg.publishUpstream).toBe(true);
@@ -156,4 +156,31 @@ describe("publishChains / publishUpstream flags", () => {
 		}
 	});
 });
+});
+
+describe("legacy config file fallback", () => {
+	it("reads pi-bifrost.json when pi-bifrost-gateway.json is absent", () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-bifrost-legacy-"));
+		writeFileSync(join(dir, "pi-bifrost.json"), JSON.stringify({ publishChains: false }));
+		try {
+			const cfg = loadBifrostConfig(dir);
+			expect(cfg.publishChains).toBe(false);
+			expect(cfg.issues).toEqual([]);
+		} finally {
+			rmSync(dir, { force: true, recursive: true });
+		}
+	});
+
+	it("canonical file wins when both exist", () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-bifrost-both-"));
+		writeFileSync(join(dir, "pi-bifrost.json"), JSON.stringify({ publishChains: false }));
+		writeFileSync(join(dir, "pi-bifrost-gateway.json"), JSON.stringify({ publishChains: true, publishUpstream: false }));
+		try {
+			const cfg = loadBifrostConfig(dir);
+			expect(cfg.publishChains).toBe(true);
+			expect(cfg.publishUpstream).toBe(false);
+		} finally {
+			rmSync(dir, { force: true, recursive: true });
+		}
+	});
 });

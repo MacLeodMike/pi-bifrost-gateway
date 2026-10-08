@@ -13,7 +13,7 @@ function packageVersion(): string {
 	return "0.0.0";
 }
 
-const USER_AGENT = `pi-bifrost/${packageVersion()}`;
+const USER_AGENT = `pi-bifrost-gateway/${packageVersion()}`;
 
 export class HttpError extends Error {
 	constructor(

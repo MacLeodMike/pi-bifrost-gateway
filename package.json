@@ -1,5 +1,5 @@
 {
-	"name": "pi-bifrost",
+	"name": "pi-bifrost-gateway",
 	"version": "0.1.0",
 	"description": "Pi extension for a Bifrost LLM gateway: chain models from VK routing rules + upstream member catalog",
 	"license": "MIT",
@@ -23,9 +23,15 @@
 		"typebox": "*"
 	},
 	"peerDependenciesMeta": {
-		"@earendil-works/pi-ai": { "optional": false },
-		"@earendil-works/pi-coding-agent": { "optional": false },
-		"typebox": { "optional": false }
+		"@earendil-works/pi-ai": {
+			"optional": false
+		},
+		"@earendil-works/pi-coding-agent": {
+			"optional": false
+		},
+		"typebox": {
+			"optional": false
+		}
 	},
 	"devDependencies": {
 		"@earendil-works/pi-ai": "^1.0.4",

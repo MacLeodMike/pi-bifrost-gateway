@@ -1,8 +1,13 @@
-# pi-bifrost
+# pi-bifrost-gateway
 
 Pi extension for a [Bifrost](https://github.com/maximhq/bifrost) LLM gateway:
 publishes the gateway's chain models as first-class pi models instead of a
 hand-maintained `models.json` block.
+
+Companion-package note: this is the chains-first flavor (VK routing-rule
+discovery via the Bifrost management API). It fills the same provider slot
+as [lxdlam/pi-bifrost-provider](https://github.com/lxdlam/pi-bifrost-provider)
+(standalone-instance flavor) — install one OR the other, not both.
 
 ## How it works
 
@@ -27,7 +32,7 @@ legacy `gateway` provider id is migrated to `bifrost` on load.
 
 ## Configuration
 
-`~/.pi/agent/pi-bifrost.json` (all keys optional; both publish flags default
+`~/.pi/agent/pi-bifrost-gateway.json` (all keys optional; both publish flags default
 to `true`):
 
 ```json

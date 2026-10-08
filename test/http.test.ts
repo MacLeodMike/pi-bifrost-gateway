@@ -22,11 +22,11 @@ describe("fetchJson", () => {
 		expect((init.headers as Record<string, string>).Authorization).toBe("Bearer vk-secret");
 	});
 
-	it("sends a User-Agent identifying pi-bifrost", async () => {
+	it("sends a User-Agent identifying pi-bifrost-gateway", async () => {
 		const fetchMock = vi.fn(async () => respond(200, JSON.stringify({ ok: true })));
 		await fetchJson("https://x.test/", "k", Validator, undefined, { fetchImpl: fetchMock as typeof fetch });
 		const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-		expect((init.headers as Record<string, string>)["User-Agent"]).toMatch(/^pi-bifrost\//);
+		expect((init.headers as Record<string, string>)["User-Agent"]).toMatch(/^pi-bifrost-gateway\//);
 	});
 
 	it("throws HttpError with parsed code/message on error JSON", async () => {

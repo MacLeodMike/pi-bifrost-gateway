@@ -1,4 +1,4 @@
-# pi-bifrost
+# pi-bifrost-gateway
 
 pi provider extension exposing a [Bifrost](https://github.com/maximhq/bifrost)
 LLM gateway as selectable chat models. The gateway is the product: chains are
@@ -17,7 +17,7 @@ src/bifrost.ts   constants only — PROVIDER_ID="bifrost", PROVIDER_DISPLAY_NAME
                  MANAGEMENT_PATH_VIRTUAL_KEYS="/api/governance/virtual-keys",
                  MANAGEMENT_PATH_ROUTING_RULES="/api/routing/rules",
                  AUTH_ENV_KEYS=["BIFROST_API_KEY"]
-src/config.ts    ← loadBifrostConfig (~/.pi/agent/pi-bifrost.json), resolveBaseUrl
+src/config.ts    ← loadBifrostConfig (~/.pi/agent/pi-bifrost-gateway.json; LEGACY_CONFIG_FILE_NAME=pi-bifrost.json fallback), resolveBaseUrl
                    (config baseUrl → BIFROST_BASE_URL → DEFAULT_BASE_URL),
                    publishChains/publishUpstream flags + legacy publishMembers alias
 src/http.ts      ← transport only — fetchJson (Bearer GET + typebox validation), HttpError{status,code,message}
@@ -117,8 +117,8 @@ npm pack --dry-run    # inspect package contents before publishing
 ```
 
 pi packs the extension from `package.json` `pi.extensions:
-["./src/index.ts"]`. Local install: `pi install ~/repos/pi-bifrost`
-(settings.json entry `../../repos/pi-bifrost`). node_modules is a SYMLINK
+["./src/index.ts"]`. Local install: `pi install ~/repos/pi-bifrost-gateway`
+(settings.json entry `../../repos/pi-bifrost-gateway`). node_modules is a SYMLINK
 to a compatible tree in this repo's checkout — `npm install` re-creates it
 as a real dir when publishing.
 
@@ -137,7 +137,7 @@ node -e "(async () => {
   const { ModelRuntime } = await jiti.import(PI + '/dist/core/model-runtime.js');
   const runtime = await ModelRuntime.create({ refreshOnCreate: false });
   const registered = [];
-  const { default: factory } = await jiti.import('$HOME/repos/pi-bifrost/src/index.ts');
+  const { default: factory } = await jiti.import('$HOME/repos/pi-bifrost-gateway/src/index.ts');
   factory({ registerProvider: (p) => registered.push(p), registerCommand: () => {},
             modelRegistry: { getProviderAuthStatus: () => ({ configured: false }) } });
   for (const p of registered) runtime.registerNativeProvider(p);
