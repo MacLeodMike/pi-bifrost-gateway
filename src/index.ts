@@ -33,7 +33,8 @@ export interface BifrostRegistrationPi {
 export async function discoverModels(
 	token: string | undefined,
 	baseUrl: string | undefined,
-	publishMembers: boolean,
+	publishChains: boolean,
+	publishUpstream: boolean,
 	signal?: AbortSignal,
 ): Promise<Model<"openai-completions">[]> {
 	if (!token || !baseUrl) return [];
@@ -51,7 +52,7 @@ export async function discoverModels(
 			`bifrost: no chain routing rules found for ${scopeId} — is chains-first routing configured for this VK?`,
 		);
 	}
-	return buildAllModels(chains, catalog, PROVIDER_ID, baseUrl, publishMembers);
+	return buildAllModels(chains, catalog, PROVIDER_ID, baseUrl, publishChains, publishUpstream);
 }
 
 /**
@@ -60,7 +61,7 @@ export async function discoverModels(
  * The catalog is re-pulled on every refresh (startup, /reload, /model) —
  * live-refresh semantics by design.
  */
-export function bifrostProvider(options: { publishMembers: boolean; baseUrl?: string }): Provider<"openai-completions"> {
+export function bifrostProvider(options: { publishChains: boolean; publishUpstream: boolean; baseUrl?: string }): Provider<"openai-completions"> {
 	return createProvider<"openai-completions">({
 		id: PROVIDER_ID,
 		name: PROVIDER_DISPLAY_NAME,
@@ -71,7 +72,7 @@ export function bifrostProvider(options: { publishMembers: boolean; baseUrl?: st
 		fetchModels: async (context) => {
 			const credential = context.credential;
 			const token = credential?.type === "api_key" ? credential.key : undefined;
-			return discoverModels(token, options.baseUrl, options.publishMembers, context.signal);
+			return discoverModels(token, options.baseUrl, options.publishChains, options.publishUpstream, context.signal);
 		},
 	});
 }
@@ -88,7 +89,7 @@ export function registerBifrostProvider(pi: BifrostRegistrationPi, provider: Pro
 			const lines = [
 				`auth: ${status.configured ? "configured" : "missing (set GATEWAY_API_KEY or run /login gateway)"}`,
 				`baseUrl: ${resolveBaseUrl(config, DEFAULT_BASE_URL)}`,
-				`publishMembers: ${config.publishMembers}`,
+				`publishChains: ${config.publishChains}, publishUpstream: ${config.publishUpstream}`,
 			];
 			if (config.issues.length > 0) lines.push(`config issues: ${config.issues.join("; ")}`);
 			lines.push(`models loaded: ${ctx.modelRegistry.getModelsOfType("chat", PROVIDER_ID).length}`);
@@ -107,7 +108,8 @@ export function defaultAgentDir(): string {
 export default function (pi: ExtensionAPI): void {
 	const config = loadBifrostConfig(defaultAgentDir());
 	const provider = bifrostProvider({
-		publishMembers: config.publishMembers,
+		publishChains: config.publishChains,
+		publishUpstream: config.publishUpstream,
 		baseUrl: resolveBaseUrl(config, DEFAULT_BASE_URL),
 	});
 	registerBifrostProvider(pi, provider);

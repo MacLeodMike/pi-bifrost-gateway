@@ -21,7 +21,7 @@ function chainModel(name: string): Model<"openai-completions"> {
 
 describe("bifrostProvider", () => {
 	it("builds a provider named gateway with retry-through-openai-completions", () => {
-		const provider = bifrostProvider({ publishMembers: false, baseUrl: BASE_URL }) as unknown as {
+		const provider = bifrostProvider({ publishChains: true, publishUpstream: false, baseUrl: BASE_URL }) as unknown as {
 			id: string;
 			baseUrl?: string;
 			getModels?: () => unknown;
@@ -42,7 +42,7 @@ describe("registerBifrostProvider", () => {
 			},
 		} as unknown as BifrostRegistrationPi;
 
-		const provider = bifrostProvider({ publishMembers: false, baseUrl: BASE_URL });
+		const provider = bifrostProvider({ publishChains: true, publishUpstream: false, baseUrl: BASE_URL });
 		registerBifrostProvider(pi, provider);
 
 		expect(registered).toHaveLength(1);
@@ -52,7 +52,7 @@ describe("registerBifrostProvider", () => {
 	it("the status command notifies auth/config/model count via ctx", async () => {
 		const notifications: string[] = [];
 		let handler: ((args: string, ctx: unknown) => Promise<void>) | undefined;
-		const provider = bifrostProvider({ publishMembers: false, baseUrl: BASE_URL });
+		const provider = bifrostProvider({ publishChains: true, publishUpstream: false, baseUrl: BASE_URL });
 		const pi = {
 			registerProvider: (p: unknown) => void p,
 			registerCommand: (_name: string, opts: { handler: typeof handler }) => {
@@ -72,13 +72,14 @@ describe("registerBifrostProvider", () => {
 		});
 		expect(notifications).toHaveLength(1);
 		expect(notifications[0]).toContain("models loaded: 2");
-		expect(notifications[0]).toContain("publishMembers: false");
+		expect(notifications[0]).toContain("publishChains: true");
+		expect(notifications[0]).toContain("publishUpstream: false");
 	});
 });
 
 describe("discoverModels", () => {
 	it("returns empty when token or baseUrl is missing", async () => {
-		expect(await discoverModels(undefined, BASE_URL, false)).toEqual([]);
-		expect(await discoverModels("token", undefined, false)).toEqual([]);
+		expect(await discoverModels(undefined, BASE_URL, true, false)).toEqual([]);
+		expect(await discoverModels("token", undefined, true, false)).toEqual([]);
 	});
 });

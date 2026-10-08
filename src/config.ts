@@ -2,8 +2,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export interface BifrostConfig {
-	/** Emit direct-selectable member models (provider/model) alongside chain models. */
-	publishMembers: boolean;
+	/** Emit chain models (gateway/<chain>) from the VK's routing rules. */
+	publishChains: boolean;
+	/** Emit all upstream models from /v1/models as direct-selectable entries. */
+	publishUpstream: boolean;
 	/** Explicit gateway /v1 base URL; when set it wins over env fallbacks. */
 	baseUrl?: string;
 	/** Human-readable problems found while loading the file. */
@@ -27,27 +29,51 @@ export function loadBifrostConfig(agentDir: string): BifrostConfig {
 	} catch (error) {
 		const code = (error as NodeJS.ErrnoException)?.code;
 		if (code === "ENOENT") {
-			return { publishMembers: false, issues };
+			return { publishChains: true, publishUpstream: true, issues };
 		}
 		const message = error instanceof Error ? error.message : String(error);
 		issues.push(`${CONFIG_FILE_NAME} is not valid JSON (${message}); using defaults`);
-		return { publishMembers: false, issues };
+		return { publishChains: true, publishUpstream: true, issues };
 	}
 
 	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
 		issues.push(`${CONFIG_FILE_NAME} must contain a JSON object; using defaults`);
-		return { publishMembers: false, issues };
+		return { publishChains: true, publishUpstream: true, issues };
 	}
 
 	const obj = raw as Record<string, unknown>;
-	let publishMembers = false;
+	let publishChains = true;
+	let legacyMembers: boolean | undefined;
+	let publishUpstream: boolean | undefined;
 	let baseUrl: string | undefined;
 
 	for (const [key, value] of Object.entries(obj)) {
 		switch (key) {
+			case "publishChains":
+				if (typeof value === "boolean") publishChains = value;
+				else issues.push(`publishChains must be a boolean (got ${typeof value}); using true`);
+				break;
+			case "publishUpstream":
+				if (typeof value === "boolean") {
+					if (legacyMembers !== undefined && legacyMembers !== value) {
+						issues.push("legacy publishMembers conflicts with publishUpstream; publishUpstream wins");
+					}
+					publishUpstream = value;
+				} else {
+					issues.push(`publishUpstream must be a boolean (got ${typeof value}); ignoring`);
+				}
+				break;
 			case "publishMembers":
-				if (typeof value === "boolean") publishMembers = value;
-				else issues.push(`publishMembers must be a boolean (got ${typeof value}); using false`);
+				if (typeof value !== "boolean") {
+					issues.push(`publishMembers must be a boolean (got ${typeof value}); ignoring`);
+					break;
+				}
+				if (legacyMembers === undefined) {
+					legacyMembers = value;
+					if (publishUpstream === undefined) {
+						issues.push("publishMembers is legacy; use publishUpstream (same meaning)");
+					}
+				}
 				break;
 			case "baseUrl":
 				if (typeof value === "string" && value.trim().length > 0) baseUrl = value.trim();
@@ -59,7 +85,7 @@ export function loadBifrostConfig(agentDir: string): BifrostConfig {
 		}
 	}
 
-	return { publishMembers, baseUrl, issues };
+	return { publishChains, publishUpstream: publishUpstream ?? legacyMembers ?? true, baseUrl, issues };
 }
 
 /**
