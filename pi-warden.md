@@ -3,8 +3,9 @@ Source code must not contain passwords, API keys, tokens, or connection URLs wit
 Read them from the environment, a function parameter, or the config module.
 Violations: a string literal that looks like `Bearer sk-…`, `vk-…`, `Bearer eyJ…`, a URL of the
 form `https://user:pass@…`, or a variable named `apiKey`/`token`/`password` whose value is a
-string literal rather than an env lookup (`process.env.BIFROST_API_KEY`, `DEFAULT_BASE_URL`,
-`envApiKeyAuth(...)`).
+string literal rather than an env lookup (`process.env.BIFROST_API_KEY`,
+`envApiKeyAuth(...)`). No gateway URL constant exists — the address comes from
+user config/env only (commit 3ec264c).
 
 # Comments explain why, not what
 A comment states a reason, a constraint, a workaround, or a non-obvious invariant. A comment
