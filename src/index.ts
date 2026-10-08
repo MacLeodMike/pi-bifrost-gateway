@@ -4,7 +4,7 @@ import { createProvider, type Model, type Provider } from "@earendil-works/pi-ai
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 // pi's extension loader doesn't virtualize lazy API implementation subpaths yet
 import { envApiKeyAuth, openAICompletionsApi } from "@earendil-works/pi-ai/compat";
-import { AUTH_ENV_KEYS, PROVIDER_DISPLAY_NAME, PROVIDER_ID } from "./bifrost.js";
+import { AUTH_ENV_KEYS, DEFAULT_BASE_URL, PROVIDER_DISPLAY_NAME, PROVIDER_ID } from "./bifrost.js";
 import { loadBifrostConfig, resolveBaseUrl } from "./config.js";
 import { buildAllModels, wireDiscovery, wireRulesToChains, wireScopeId } from "./catalog.js";
 
@@ -38,13 +38,13 @@ export async function discoverModels(
 ): Promise<Model<"openai-completions">[]> {
 	if (!token || !baseUrl) return [];
 
-	const scopeId = await wireScopeId(token, signal);
+	const scopeId = await wireScopeId(token, baseUrl, signal);
 	if (!scopeId) {
 		throw new Error(
 			"bifrost: credential does not match any virtual key in /api/governance/virtual-keys",
 		);
 	}
-	const { catalog, rules } = await wireDiscovery(token, scopeId, signal);
+	const { catalog, rules } = await wireDiscovery(token, baseUrl, scopeId, signal);
 	const chains = wireRulesToChains(rules);
 	if (chains.length === 0) {
 		throw new Error(
@@ -87,7 +87,7 @@ export function registerBifrostProvider(pi: BifrostRegistrationPi, provider: Pro
 			const status = ctx.modelRegistry.getProviderAuthStatus(PROVIDER_ID);
 			const lines = [
 				`auth: ${status.configured ? "configured" : "missing (set GATEWAY_API_KEY or run /login gateway)"}`,
-				`baseUrl: ${resolveBaseUrl(config) ?? "not configured (config baseUrl, BIFROST_BASE_URL, or GATEWAY_BASE_URL)"}`,
+				`baseUrl: ${resolveBaseUrl(config, DEFAULT_BASE_URL)}`,
 				`publishMembers: ${config.publishMembers}`,
 			];
 			if (config.issues.length > 0) lines.push(`config issues: ${config.issues.join("; ")}`);
@@ -108,7 +108,7 @@ export default function (pi: ExtensionAPI): void {
 	const config = loadBifrostConfig(defaultAgentDir());
 	const provider = bifrostProvider({
 		publishMembers: config.publishMembers,
-		baseUrl: resolveBaseUrl(config),
+		baseUrl: resolveBaseUrl(config, DEFAULT_BASE_URL),
 	});
 	registerBifrostProvider(pi, provider);
 }

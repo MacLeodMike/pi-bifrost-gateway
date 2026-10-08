@@ -3,8 +3,14 @@
 export const PROVIDER_ID = "gateway";
 export const PROVIDER_DISPLAY_NAME = "Bifrost Gateway";
 
-/** Inference path: OpenAI-compatible /v1 prefix (models + chat completions). */
-export const INFERENCE_PATH_MODELS = "/v1/models";
+/** Different relative to the configured /v1 base URL. */
+export const INFERENCE_PATH_MODELS = "models";
+
+/**
+ * Deployed gateway URL (tailscale L7 ingress, LE cert). Overridable via
+ * config baseUrl, then BIFROST_BASE_URL / GATEWAY_BASE_URL env.
+ */
+export const DEFAULT_BASE_URL = "https://bifrost.example.invalid/v1";
 
 /** Management API paths (2026-10-08 live-verified on Bifrost v2.2.x). */
 export const MANAGEMENT_PATH_VIRTUAL_KEYS = "/api/governance/virtual-keys";
