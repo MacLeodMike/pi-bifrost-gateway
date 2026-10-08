@@ -27,6 +27,10 @@ export interface BifrostRegistrationPi {
  * (`/v1/models`) + this VK's routing rules → chain models (`bifrost/<chain>`)
  * and, when configured, direct-selectable member models.
  * Returns an empty list when the credential or baseUrl is missing.
+ * When `thinkingOverrides` carries an entry for a member id, that member's
+ * direct-selectable model ships the override ladder instead of the full one
+ * (a member that rejects effort levels it doesn't support would otherwise
+ * 400 every effort-pinned request).
  * Throws when discovery itself fails (bad credential, unreachable gateway,
  * VK not recognized) so pi surfaces the error instead of silently dropping.
  */
@@ -35,6 +39,7 @@ export async function discoverModels(
 	baseUrl: string | undefined,
 	publishChains: boolean,
 	publishUpstream: boolean,
+	thinkingOverrides?: Record<string, string[]>,
 	signal?: AbortSignal,
 ): Promise<Model<"openai-completions">[]> {
 	if (!token || !baseUrl) return [];
@@ -52,7 +57,7 @@ export async function discoverModels(
 			`bifrost: no chain routing rules found for ${scopeId} — is chains-first routing configured for this VK?`,
 		);
 	}
-	return buildAllModels(chains, catalog, PROVIDER_ID, baseUrl, publishChains, publishUpstream);
+	return buildAllModels(chains, catalog, PROVIDER_ID, baseUrl, publishChains, publishUpstream, thinkingOverrides);
 }
 
 /**
@@ -61,7 +66,12 @@ export async function discoverModels(
  * The catalog is re-pulled on every refresh (startup, /reload, /model) —
  * live-refresh semantics by design.
  */
-export function bifrostProvider(options: { publishChains: boolean; publishUpstream: boolean; baseUrl?: string }): Provider<"openai-completions"> {
+export function bifrostProvider(options: {
+	publishChains: boolean;
+	publishUpstream: boolean;
+	baseUrl?: string;
+	thinkingOverrides?: Record<string, string[]>;
+}): Provider<"openai-completions"> {
 	return createProvider<"openai-completions">({
 		id: PROVIDER_ID,
 		name: PROVIDER_DISPLAY_NAME,
@@ -72,7 +82,14 @@ export function bifrostProvider(options: { publishChains: boolean; publishUpstre
 		fetchModels: async (context) => {
 			const credential = context.credential;
 			const token = credential?.type === "api_key" ? credential.key : undefined;
-			return discoverModels(token, options.baseUrl, options.publishChains, options.publishUpstream, context.signal);
+			return discoverModels(
+				token,
+				options.baseUrl,
+				options.publishChains,
+				options.publishUpstream,
+				options.thinkingOverrides,
+				context.signal,
+			);
 		},
 	});
 }
@@ -144,6 +161,7 @@ export default function (pi: ExtensionAPI): void {
 		publishChains: config.publishChains,
 		publishUpstream: config.publishUpstream,
 		baseUrl: resolveBaseUrl(config, DEFAULT_BASE_URL),
+		thinkingOverrides: config.thinkingOverrides,
 	});
 	registerBifrostProvider(pi, provider);
 }

@@ -22,6 +22,15 @@ describe("fetchJson", () => {
 		expect((init.headers as Record<string, string>).Authorization).toBe("Bearer vk-secret");
 	});
 
+	it("attaches a deadline AbortSignal so a silent peer cannot hang the refresh", async () => {
+		const fetchMock = vi.fn(async () => respond(200, JSON.stringify({ ok: true })));
+		await fetchJson("https://x.test/", "k", Validator, undefined, { fetchImpl: fetchMock as typeof fetch });
+		const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+		// A raw caller signal would be passed through untouched; an abortable
+		// deadline signal (AbortSignal.any of timeout + caller) must be present.
+		expect(init.signal).toBeInstanceOf(AbortSignal);
+	});
+
 	it("sends a User-Agent identifying pi-bifrost-gateway", async () => {
 		const fetchMock = vi.fn(async () => respond(200, JSON.stringify({ ok: true })));
 		await fetchJson("https://x.test/", "k", Validator, undefined, { fetchImpl: fetchMock as typeof fetch });

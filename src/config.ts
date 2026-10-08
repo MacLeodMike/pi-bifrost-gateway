@@ -8,6 +8,13 @@ export interface BifrostConfig {
 	publishUpstream: boolean;
 	/** Explicit gateway /v1 base URL; when set it wins over env fallbacks. */
 	baseUrl?: string;
+	/**
+	 * Per-member thinking-level overrides, keyed by upstream member id
+	 * ("provider/model"). Each list is the member's real supported ladder;
+	 * when present it REPLACES the full-ladder default on direct-selectable
+	 * member models of that id.
+	 */
+	thinkingOverrides?: Record<string, string[]>;
 	/** Human-readable problems found while loading the file. */
 	issues: string[];
 }
@@ -19,6 +26,36 @@ export const CONFIG_FILE_NAME = "pi-bifrost-gateway.json";
 export const LEGACY_CONFIG_FILE_NAME = "pi-bifrost.json";
 
 const URL_KEYS = ["BIFROST_BASE_URL"] as const;
+
+const THINKING_LEVELS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
+export type ThinkingLevelName = (typeof THINKING_LEVELS)[number];
+
+const VALID_LEVELS: ReadonlySet<string> = new Set<string>(THINKING_LEVELS);
+
+function parseThinkingOverrides(raw: unknown, issues: string[]): Record<string, string[]> | undefined {
+	if (raw === undefined) return undefined;
+	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+		issues.push("thinkingOverrides must be an object of member-id → allowed levels; ignoring");
+		return undefined;
+	}
+	const overrides: Record<string, string[]> = {};
+	for (const [memberId, levels] of Object.entries(raw as Record<string, unknown>)) {
+		if (!Array.isArray(levels)) {
+			issues.push(`thinkingOverrides["${memberId}"] must be an array of level strings; ignoring`);
+			continue;
+		}
+		const valid = levels.filter((l): l is string => typeof l === "string" && VALID_LEVELS.has(l));
+		if (valid.length !== levels.length) {
+			// A ladder the author didn't fully know must not be half-applied:
+			// the member keeps the full-map default until the override is
+			// corrected.
+			issues.push(`thinkingOverrides["${memberId}"] contains unknown level names; entry ignored`);
+			continue;
+		}
+		if (valid.length > 0) overrides[memberId] = valid;
+	}
+	return Object.keys(overrides).length > 0 ? overrides : undefined;
+}
 
 /**
  * Load plugin config from `<agentDir>/pi-bifrost-gateway.json`, falling back to the
@@ -45,7 +82,7 @@ export function loadBifrostConfig(agentDir: string): BifrostConfig {
 	} catch (error) {
 		const code = (error as NodeJS.ErrnoException)?.code;
 		if (code === "ENOENT") {
-			return { publishChains: true, publishUpstream: true, issues };
+			return { publishChains: true, publishUpstream: true, thinkingOverrides: undefined, issues };
 		}
 		const message = error instanceof Error ? error.message : String(error);
 		issues.push(`${CONFIG_FILE_NAME} is not valid JSON (${message}); using defaults`);
@@ -62,6 +99,7 @@ export function loadBifrostConfig(agentDir: string): BifrostConfig {
 	let legacyMembers: boolean | undefined;
 	let publishUpstream: boolean | undefined;
 	let baseUrl: string | undefined;
+	let thinkingOverrides: Record<string, string[]> | undefined;
 
 	for (const [key, value] of Object.entries(obj)) {
 		switch (key) {
@@ -95,13 +133,16 @@ export function loadBifrostConfig(agentDir: string): BifrostConfig {
 				if (typeof value === "string" && value.trim().length > 0) baseUrl = value.trim();
 				else issues.push(`baseUrl must be a non-empty string (got ${typeof value}); ignoring`);
 				break;
+			case "thinkingOverrides":
+				thinkingOverrides = parseThinkingOverrides(value, issues);
+				break;
 			default:
 				issues.push(`unknown config key "${key}"`);
 				break;
 		}
 	}
 
-	return { publishChains, publishUpstream: publishUpstream ?? legacyMembers ?? true, baseUrl, issues };
+	return { publishChains, publishUpstream: publishUpstream ?? legacyMembers ?? true, baseUrl, thinkingOverrides, issues };
 }
 
 /**

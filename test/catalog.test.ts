@@ -157,8 +157,50 @@ describe("buildMemberModels", () => {
 		expect(hyper?.cost.output).toBeCloseTo(0.5444, 4);
 	});
 
+	it("carries wire cache rates when the gateway reports them", () => {
+		const catalog = [
+			memberModel("hyper/glm-5.3-flash", {
+				pricing: {
+					prompt: "0.0000001000",
+					completion: "0.0000005000",
+					input_cache_read: "0.0000000100",
+					input_cache_write: "0.0000001250",
+				},
+			}),
+		];
+		const models = buildMemberModels([], catalog, GATEWAY_ID, BASE_URL);
+		expect(models[0]?.cost.cacheRead).toBeCloseTo(0.01, 4);
+		expect(models[0]?.cost.cacheWrite).toBeCloseTo(0.125, 4);
+	});
+
+	it("stays at honest-zero cost when cache rates are absent", () => {
+		const catalog = [memberModel("hyper/glm-5.3-flash")];
+		const models = buildMemberModels([], catalog, GATEWAY_ID, BASE_URL);
+		expect(models[0]?.cost.cacheRead).toBe(0);
+		expect(models[0]?.cost.cacheWrite).toBe(0);
+	});
+
 	it("is empty when publishMembers is false", () => {
 		expect(buildMemberModels([], [], GATEWAY_ID, BASE_URL)).toEqual([]);
+	});
+
+	it("ships the override ladder when the config declares one for a member", () => {
+		const catalog = [memberModel("hyper/glm-5.2")];
+		const models = buildMemberModels([], catalog, GATEWAY_ID, BASE_URL, { "hyper/glm-5.2": ["low", "high"] });
+		expect(models[0]?.thinkingLevelMap).toEqual({ off: "off", low: "low", high: "high" });
+	});
+
+	it("ships the full ladder when no override is declared", () => {
+		const catalog = [memberModel("hyper/glm-5.2")];
+		const models = buildMemberModels([], catalog, GATEWAY_ID, BASE_URL);
+		expect(Object.keys(models[0]?.thinkingLevelMap ?? {})).toContain("xhigh");
+	});
+
+	it("chains always carry the full ladder even when overrides exist", () => {
+		const catalog = [memberModel("hyper/glm-5.2")];
+		const chains = [{ name: "glm-5.2", primary: "hyper/glm-5.2", fallbacks: [] }];
+		const models = buildChainModels(chains, catalog, GATEWAY_ID, BASE_URL);
+		expect(Object.keys(models[0]?.thinkingLevelMap ?? {})).toContain("xhigh");
 	});
 });
 

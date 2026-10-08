@@ -246,9 +246,15 @@ export function perMtok(dollarsPerToken: string): number | undefined {
 	return Number.isFinite(value) && value > 0 ? value * 1_000_000 : undefined;
 }
 
-function thinkingLevelMap(): ThinkingLevelMap {
+/**
+ * The published map ships the full ladder (chains are transport-only: the
+ * gateway routes effort). A direct member with a config-declared subset gets
+ * exactly that subset — pi disables levels it sends for a model.
+ */
+function thinkingLevelMap(levels?: readonly string[]): ThinkingLevelMap {
+	const ladder = levels ?? PI_THINKING_LEVELS;
 	const map: ThinkingLevelMap = { off: "off" };
-	for (const level of PI_THINKING_LEVELS) map[level] = level;
+	for (const level of ladder) map[level as ThinkingLevel] = level as ThinkingLevel;
 	return map;
 }
 
@@ -292,6 +298,7 @@ export function buildMemberModels(
 	catalog: CatalogModel[],
 	providerSlug: string,
 	baseUrl: string,
+	thinkingOverrides?: Record<string, string[]>,
 ): Model<"openai-completions">[] {
 	const memberIds: string[] = [];
 	const seen = new Set<string>();
@@ -316,6 +323,12 @@ export function buildMemberModels(
 		if (!entry) continue; // chain member absent from /v1/models — skip rather than guess
 		const inputRate = entry.pricing ? perMtok(entry.pricing.prompt) : undefined;
 		const outputRate = entry.pricing ? perMtok(entry.pricing.completion) : undefined;
+		// The gateway reports cache rates when its upstream pricing carries
+		// them; a missing or zero rate becomes cost 0 (HONEST-zero rule —
+		// never fabricated), so member cache-read costs read free until
+		// Bifrost's datasheet is populated.
+		const cacheReadRate = entry.pricing?.input_cache_read ? perMtok(entry.pricing.input_cache_read) : undefined;
+		const cacheWriteRate = entry.pricing?.input_cache_write ? perMtok(entry.pricing.input_cache_write) : undefined;
 		models.push({
 			id: memberId,
 			name: memberId,
@@ -323,11 +336,16 @@ export function buildMemberModels(
 			provider: providerSlug,
 			baseUrl,
 			input: ["text"],
-			cost: { input: inputRate ?? 0, output: outputRate ?? 0, cacheRead: 0, cacheWrite: 0 },
+			cost: {
+				input: inputRate ?? 0,
+				output: outputRate ?? 0,
+				cacheRead: cacheReadRate ?? 0,
+				cacheWrite: cacheWriteRate ?? 0,
+			},
 			reasoning: true,
 			contextWindow: entry.context_length ?? CONTEXT_WINDOW_FALLBACK,
 			maxTokens: entry.max_output_limit ?? MAX_TOKENS_FALLBACK,
-			thinkingLevelMap: thinkingLevelMap(),
+			thinkingLevelMap: thinkingLevelMap(thinkingOverrides?.[memberId]),
 		});
 	}
 	return models;
@@ -341,9 +359,10 @@ export function buildAllModels(
 	baseUrl: string,
 	publishChains: boolean,
 	publishUpstream: boolean,
+	thinkingOverrides?: Record<string, string[]>,
 ): Model<"openai-completions">[] {
 	const chainModels = publishChains ? buildChainModels(chains, catalog, providerSlug, baseUrl) : [];
-	const upstreamModels = publishUpstream ? buildMemberModels(chains, catalog, providerSlug, baseUrl) : [];
+	const upstreamModels = publishUpstream ? buildMemberModels(chains, catalog, providerSlug, baseUrl, thinkingOverrides) : [];
 	return [...chainModels, ...upstreamModels];
 }
 

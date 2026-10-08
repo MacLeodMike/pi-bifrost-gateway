@@ -38,7 +38,14 @@ interface ErrorBody {
  * GET `url` with Bearer auth and validate the JSON body with `validator`.
  * Non-2xx responses throw HttpError carrying the upstream
  * `error.code`/`error.message` when present. Abort errors propagate untouched.
+ *
+ * Each GET also carries a default 15 s deadline (AbortSignal.timeout,
+ * combined with any caller signal — the caller's abort still wins). Without
+ * it a peer that accepts the connection and then goes silent hangs the
+ * refresh until the process dies; refresh MUST terminate.
  */
+const DEFAULT_TIMEOUT_MS = 15_000;
+
 export async function fetchJson<T>(
 	url: string,
 	token: string,
@@ -47,6 +54,7 @@ export async function fetchJson<T>(
 	opts?: FetchJsonOptions,
 ): Promise<T> {
 	const doFetch = opts?.fetchImpl ?? globalThis.fetch;
+	const deadline = AbortSignal.any([AbortSignal.timeout(DEFAULT_TIMEOUT_MS), ...(signal ? [signal] : [])]);
 	const response = await doFetch(url, {
 		method: "GET",
 		headers: {
@@ -54,7 +62,7 @@ export async function fetchJson<T>(
 			"User-Agent": USER_AGENT,
 			Accept: "application/json",
 		},
-		signal,
+		signal: deadline,
 	});
 
 	const body = await response.text();
