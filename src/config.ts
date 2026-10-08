@@ -12,20 +12,36 @@ export interface BifrostConfig {
 	issues: string[];
 }
 
-export const CONFIG_FILE_NAME = "pi-bifrost.json";
+/** Canonical config file for this package. */
+export const CONFIG_FILE_NAME = "pi-bifrost-gateway.json";
+
+/** Pre-rename config filename (pi-bifrost 0.1.x); still read when the canonical file is absent. */
+export const LEGACY_CONFIG_FILE_NAME = "pi-bifrost.json";
 
 const URL_KEYS = ["BIFROST_BASE_URL"] as const;
 
 /**
- * Load plugin config from `<agentDir>/pi-bifrost.json`.
+ * Load plugin config from `<agentDir>/pi-bifrost-gateway.json`, falling back to the
+ * pre-rename `pi-bifrost.json` (0.1.x install) when the canonical file is absent.
  * Missing file = defaults; malformed file = defaults + issue; unknown keys
  * and wrong-typed values are reported but never fatal.
  */
+function readConfigFile(agentDir: string): { content: string; file: string } {
+	try {
+		return { content: readFileSync(join(agentDir, CONFIG_FILE_NAME), "utf8"), file: CONFIG_FILE_NAME };
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") throw error;
+	}
+	// Canonical file absent — fall back to the pre-rename 0.1.x file so a
+	// renamed install keeps working without user action.
+	return { content: readFileSync(join(agentDir, LEGACY_CONFIG_FILE_NAME), "utf8"), file: LEGACY_CONFIG_FILE_NAME };
+}
+
 export function loadBifrostConfig(agentDir: string): BifrostConfig {
 	const issues: string[] = [];
 	let raw: unknown;
 	try {
-		raw = JSON.parse(readFileSync(join(agentDir, CONFIG_FILE_NAME), "utf8"));
+		raw = JSON.parse(readConfigFile(agentDir).content);
 	} catch (error) {
 		const code = (error as NodeJS.ErrnoException)?.code;
 		if (code === "ENOENT") {

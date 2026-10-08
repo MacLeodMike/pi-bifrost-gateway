@@ -157,8 +157,11 @@ Grep the changed file. A violation is ANY of these literal occurrences:
 (a) `bifrost-gateway` or `gateway` as the name argument of a `registerCommand(` call in
 src/index.ts (the one status command must be registered as `"bifrost"`);
 (b) the substring `/login gateway` in any src/** or README.md file;
-(c) `CONFIG_FILE_NAME` in src/config.ts holding anything other than `"pi-bifrost.json"`
-(the string literal `'pi-bifrost.json'` in src/config.ts is correct exactly once).
+(c) `CONFIG_FILE_NAME` in src/config.ts holding anything other than
+`"pi-bifrost-gateway.json"` — the only strings named `pi-bifrost*.json` allowed in
+src/config.ts are `CONFIG_FILE_NAME = "pi-bifrost-gateway.json"` and
+`LEGACY_CONFIG_FILE_NAME = "pi-bifrost.json"` (the pre-rename fallback, appearing exactly
+once).
 paths: src/**/*.ts, README.md
 
 # Keep fetchImpl injectable for tests
