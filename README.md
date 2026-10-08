@@ -16,8 +16,8 @@ hand-maintained `models.json` block.
    rules; CEL `model == "x"` pairs give chain names, targets + `fallbacks[]`
    give member ids.
 
-From that it emits one pi model per chain (`gateway/<chain>`, e.g.
-`gateway/glm-5.3-flash`), with `contextWindow` = min member window.
+From that it emits one pi model per chain (`bifrost/<chain>`, e.g.
+`bifrost/glm-5.3-flash`), with `contextWindow` = min member window.
 
 ## Auth
 
@@ -34,13 +34,12 @@ to `true`):
 { "publishChains": true, "publishUpstream": true }
 ```
 
-- `publishChains: false` hides the `gateway/<chain>` models.
+- `publishChains: false` hides the `bifrost/<chain>` models.
 - `publishUpstream: false` hides the direct-selectable upstream catalog
   (`hyper/glm-5.3-flash`, `pareto/glm-5.3-flash`, …) with real per-member
   pricing. `publishMembers` is accepted as a legacy alias.
 - `baseUrl` (optional) overrides the gateway URL; then env
-  `BIFROST_BASE_URL`, then `GATEWAY_BASE_URL`; default is the deployed
-  tailscale gateway URL.
+  `BIFROST_BASE_URL`; default is the deployed tailscale gateway URL.
 
 ## Cost
 
