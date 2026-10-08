@@ -40,28 +40,19 @@ Violation patterns (in bash/tool invocations): `git reset --hard`, `git checkout
 
 # No explicit `any`
 TypeScript: `: any`, `<any>`, `as any`, and `any[]` are forbidden.
-Violation patterns: `: any`, `<any>`, `as any`, `any[]`.
+Literal forbidden substrings anywhere in src/** (including comments and test fixtures):
+`: any`, `<any>`, `as any`, `any[]`. Use `unknown` plus a type guard, or a concrete type.
 paths: src/**/*.ts, src/**/*.tsx
 
 # Exported functions declare their return type
-Exported functions declare their return type.
-Violation pattern: `export function name(...)` or `export async function name(...)` with no
-`:` return annotation before the body's `{`.
+Every `export function` / `export async function` carries an explicit return annotation:
+the header line matches `export (async )?function \w+` AND contains `: ` after the closing
+parenthesis of the parameter list (e.g. `): string {`, `): Promise<Model[]> {`, `): void {`).
+A violation is ANY `export function` / `export async function` whose header line has no
+`): <type> {` before the opening brace (including inferred-only returns and generators
+without annotations). Arrow-function exports (`export const f = (...) => ...`) are exempt
+as they cannot be annotated without a `:` after the parens anyway.
 paths: src/**/*.ts
-
-# Verify after every change
-Any change to src/** or test/** must be verified with the project's own commands before
-claiming done: `npx vitest run` and `npx tsc --noEmit`.
-Violation pattern: claiming completion/ship/fix after writing files with no test or typecheck
-run recorded.
-
-# Fix tests by fixing code, not by editing the test to fit the code
-A failing test signals a contract change or a regression; resolve it by correcting the
-implementation, making the contract change explicit, or removing the test while naming the
-violated contract. "Fixing" a failing test by weakening assertions without naming the
-violated contract is a violation.
-Violation pattern: editing `expect(...)` values in test/** to whatever the implementation
-currently produces, without a comment naming the contract being changed.
 
 # Route changes must not rename the slug
 Source must use provider id `bifrost`, chain ids `bifrost/<chain>`, and env `BIFROST_API_KEY`.
@@ -89,13 +80,13 @@ Violation patterns: `Number(` or `parseFloat(` applied directly to a `pricing.pr
 paths: src/**/*.ts
 
 # Chain names come from CEL canonicalization
-Chain model names must come from `chainNameFromCel` canonicalizing every `model ==` arm to one
-bare name (after stripping managed prefixes `bifrost/` and `gateway/`). Zero or multiple
-distinct canonical names is NOT a chain rule and must be skipped.
-Violation patterns in src/catalog.ts: deriving a chain name from `rule.name`
-(`"Chain: <model>"` string), or `wireRulesToChains` publishing a chain whose CEL arms
-canonicalize to more than one bare name.
-paths: src/**/*.ts
+In src/catalog.ts, `wireRulesToChains` must derive each published chain's `name` from
+`chainNameFromCel(rule.cel_expression)` — never from `rule.name` (the human label
+`"Chain: <model>"`) and never by hand-built string work. A concrete violation is ANY use of
+`rule.name` as a chain model name, or calling `wireRulesToChains` on a rule whose CEL arms
+(`model == "x"`) canonicalize to 2+ distinct bare names after stripping managed prefixes
+(`chainNameFromCel` returning `undefined`) and the rule still being published.
+paths: src/catalog.ts
 
 # Fallback limits stay honest
 When a chain has no catalog-bearing members, pi-ai requires numeric limits; the missing-value
@@ -147,28 +138,31 @@ Violation pattern in src/index.ts: removing early returns and hitting the gatewa
 paths: src/index.ts
 
 # Credential paths are exact
-The stored-VK resolution must prefer the stored credential (`envApiKeyAuth` semantics:
-stored key wins, then `BIFROST_API_KEY` env) and MUST NOT add a second key-resolution path
-(home-file scan, config file, re-login loop).
-Violation patterns: `process.env.BIFROST_API_KEY` read outside `AUTH_ENV_KEYS` plumbed
-through `envApiKeyAuth`; a new credential store read in src/index.ts / src/catalog.ts.
+The credential is resolved in exactly one place: `AUTH_ENV_KEYS` (src/bifrost.ts) plumbed
+into `envApiKeyAuth(...)` in src/index.ts. Single-file violations: (a) any OTHER
+`process.env.BIFROST_API_KEY` (or `process.env.GATEWAY_API_KEY`) READ outside
+`AUTH_ENV_KEYS = [...]` in src/bifrost.ts; (b) any `readFile`/`readFileSync` call in
+src/index.ts or src/catalog.ts that opens `auth.json` outside `migrateStoredCredential`
+in src/index.ts; (c) any credential prompting loop (`interaction.prompt(...)`) added
+outside the `login` implementation in src/index.ts.
 paths: src/**/*.ts
 
 # Slash status command constants must not lie
-The status command is `/bifrost`, the login command is `/login bifrost`, and the plugin config
-file is `pi-bifrost.json` in the agent dir (`CONFIG_FILE_NAME`). Drift in the user-facing
-strings is a violation.
-Violation patterns in src/index.ts: `registerCommand("bifrost-gateway"`, a status message
-naming `/login gateway` or `pi-bifrost` (the old slug), or config.ts `CONFIG_FILE_NAME` not
-`"pi-bifrost.json"`.
-paths: src/**/*.ts
+User-facing identifiers in src/** must be exactly these literals. A violation is ANY of:
+(a) any `registerCommand(...)` name that is not `"bifrost"` in src/index.ts; (b) the literal substring `/login gateway` anywhere in src/** or
+README.md (only `/login bifrost` is correct); (c) `CONFIG_FILE_NAME` in src/config.ts holding
+a value other than `"pi-bifrost.json"`.
+paths: src/**/*.ts, README.md
 
 # Keep fetchImpl injectable for tests
-`fetchJson` accepts an optional `fetchImpl` (FetchJsonOptions); removing that injection point
-and hard-coding `globalThis.fetch` makes the unit tests impossible and is a violation.
-Violation pattern: deleting `FetchJsonOptions`/`fetchImpl` from src/http.ts, or replacing
-`opts?.fetchImpl ?? globalThis.fetch` with an unconditional global fetch call in src/http.ts.
-paths: src/**/*.ts
+src/http.ts MUST keep BOTH of these exact shapes: (a) `export interface FetchJsonOptions {`
+containing the field `fetchImpl?: typeof fetch;`, and (b) inside `fetchJson`, the line
+`const doFetch = opts?.fetchImpl ?? globalThis.fetch;`. Deleting either line, renaming the
+interface or field, or replacing the fallback chain in (b) with an unconditional
+`globalThis.fetch` call is a violation. `fetchJson` must also keep its
+`FetchJsonOptions`-typed optional `opts` parameter. The interface must not be re-exported
+from any module other than src/http.ts, so tests retain one seam to import.
+paths: src/http.ts
 
 # Never echo VK secrets
 The VK value appears ONLY in the Authorization header and pi's credential store. Logging it,
@@ -188,13 +182,14 @@ Violation patterns: new module-scope caches keyed by URL + Time in src/catalog.t
 paths: src/**/*.ts
 
 # Typeboxed wire shapes
-Every fetched wire payload (`/v1/models` envelope, `/api/governance/virtual-keys` envelope,
-`/api/routing/rules` envelope) must pass through a compiled typebox `Validator` inside
-`fetchJson` before use; decoding a raw `any`-cast JSON body into app types without validation
-is a violation.
-Violation patterns in src/catalog.ts / src/http.ts: `JSON.parse(...)` result assigned to a
-typed variable without `validator.Check` / `fetchJson`, or `additionalProperties: false`
-added to an envelope schema (extra provider fields must pass through).
+Every wire payload is parsed ONLY by `fetchJson` in src/http.ts (Bearer GET + typebox
+validation). Single-file violations: (a) a `JSON.parse(...)` call anywhere in src/catalog.ts
+or src/index.ts whose parsed result is USED (assigned, returned, iterated) rather than
+immediately wrapped in `fetchJson`; (b) `additionalProperties: false` present on any
+`Type.Object` envelope schema (`ModelsEnvelopeSchema`, `VirtualKeysEnvelopeSchema`,
+`RulesEnvelopeSchema`) in src/catalog.ts — extra provider fields must continue to pass
+through unchecked; (c) a `fetchJson` call passing a raw schema (a `Type.Object` value) as the
+`validator` argument instead of a compiled validator from `Compile(...)`.
 paths: src/**/*.ts
 
 # Keep the auth.json migration best-effort
