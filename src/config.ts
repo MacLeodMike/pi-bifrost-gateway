@@ -14,7 +14,7 @@ export interface BifrostConfig {
 
 export const CONFIG_FILE_NAME = "pi-bifrost.json";
 
-const URL_KEYS = ["BIFROST_BASE_URL", "GATEWAY_BASE_URL"] as const;
+const URL_KEYS = ["BIFROST_BASE_URL"] as const;
 
 /**
  * Load plugin config from `<agentDir>/pi-bifrost.json`.
@@ -90,7 +90,7 @@ export function loadBifrostConfig(agentDir: string): BifrostConfig {
 
 /**
  * Effective gateway base URL: explicit config value, then BIFROST_BASE_URL,
- * then GATEWAY_BASE_URL. `undefined` when nothing is configured.
+ * then nothing — the caller supplies the built-in default URL.
  */
 export function resolveBaseUrl(config: BifrostConfig, fallback: string): string {
 	if (config.baseUrl) return config.baseUrl;

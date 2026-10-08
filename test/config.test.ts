@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { loadBifrostConfig, resolveBaseUrl, type BifrostConfig } from "../src/config.js";
 import { DEFAULT_BASE_URL } from "../src/bifrost.js";
 
-const ENV_KEYS = ["BIFROST_BASE_URL", "GATEWAY_BASE_URL"] as const;
+const ENV_KEYS = ["BIFROST_BASE_URL"] as const;
 
 function withEnv<T>(values: Partial<Record<(typeof ENV_KEYS)[number], string>>, fn: () => T): T {
 	const saved = new Map<string, string | undefined>();
@@ -38,21 +38,6 @@ describe("loadBifrostConfig", () => {
 		withEnv({ BIFROST_BASE_URL: "https://env-bf.example.com/v1" }, () => {
 			expect(resolveBaseUrl({ publishChains: true, publishUpstream: false, issues: [] }, DEFAULT_BASE_URL)).toBe("https://env-bf.example.com/v1");
 		});
-	});
-
-	it("falls back to GATEWAY_BASE_URL when BIFROST_BASE_URL is unset", () => {
-		withEnv({ GATEWAY_BASE_URL: "https://env-gw.example.com/v1" }, () => {
-			expect(resolveBaseUrl({ publishChains: true, publishUpstream: false, issues: [] }, DEFAULT_BASE_URL)).toBe("https://env-gw.example.com/v1");
-		});
-	});
-
-	it("BIFROST_BASE_URL wins over GATEWAY_BASE_URL", () => {
-		withEnv(
-			{ BIFROST_BASE_URL: "https://env-bf.example.com/v1", GATEWAY_BASE_URL: "https://env-gw.example.com/v1" },
-			() => {
-				expect(resolveBaseUrl({ publishChains: true, publishUpstream: false, issues: [] }, DEFAULT_BASE_URL)).toBe("https://env-bf.example.com/v1");
-			},
-		);
 	});
 
 	it("falls back to DEFAULT_BASE_URL when nothing is set", () => {
