@@ -34,8 +34,9 @@ built-in gateway URL**, so an unconfigured install registers zero models:
 }
 ```
 
-Auth: `/login bifrost` (stores the virtual-key value in `auth.json`) or the
-`BIFROST_API_KEY` env var.
+Auth: `/login bifrost` (stores the virtual key AND the gateway URL on the
+credential in `auth.json` — sufficient on its own) or the `BIFROST_API_KEY`
+env var.
 
 ## How it works
 
@@ -54,9 +55,17 @@ From that it emits one pi model per chain (`bifrost/<chain>`, e.g.
 
 ## Auth
 
-Stored credential in `auth.json` for provider `bifrost`, or `BIFROST_API_KEY`
-env. `/login bifrost` prompts for the key. A stored credential under the
-legacy `gateway` provider id is migrated to `bifrost` on load.
+`/login bifrost` prompts for **both** the gateway URL and the virtual key and
+stores them together on the credential in `auth.json` (URL in the
+credential's `BIFROST_URL` env slot) — after login no config file is needed.
+Alternatively set `baseUrl` via config/`BIFROST_BASE_URL` env and `/login`
+with the URL left blank to keep that ambient resolution.
+
+URL precedence: login-stored credential URL → config-file `baseUrl` →
+`BIFROST_BASE_URL` env. Key: stored credential → `BIFROST_API_KEY` env.
+A stored credential under the legacy `gateway` provider id is migrated to
+`bifrost` on load; re-running `/login bifrost` upgrades an old key-only
+credential to carry its URL.
 
 ## Configuration
 
@@ -71,10 +80,9 @@ to `true`):
 - `publishUpstream: false` hides the direct-selectable upstream catalog
   (`hyper/glm-5.3-flash`, `pareto/glm-5.3-flash`, …) with real per-member
   pricing. `publishMembers` is accepted as a legacy alias.
-- `baseUrl` (optional) gateway `/v1` URL; when absent, env `BIFROST_BASE_URL`
-  is used. There is NO built-in default URL: with neither set, the plugin
-  registers no models at all. Set one of the two to your own Bifrost
-  instance.
+- `baseUrl` (optional) gateway `/v1` URL; then env `BIFROST_BASE_URL`. There
+  is NO built-in default URL: with neither set (and no URL stored by
+  `/login bifrost`), the plugin registers zero models.
 
 ## Cost
 

@@ -18,7 +18,7 @@ src/bifrost.ts   constants only — PROVIDER_ID="bifrost", PROVIDER_DISPLAY_NAME
                  MANAGEMENT_PATH_ROUTING_RULES="/api/routing/rules",
                  AUTH_ENV_KEYS=["BIFROST_API_KEY"]
 src/config.ts    ← loadBifrostConfig (~/.pi/agent/pi-bifrost-gateway.json; LEGACY_CONFIG_FILE_NAME=pi-bifrost.json fallback), resolveBaseUrl
-                   (config baseUrl → BIFROST_BASE_URL → unset = no models),
+                   (login-stored credential URL → config baseUrl → BIFROST_BASE_URL → unset = no models),
                    publishChains/publishUpstream flags + legacy publishMembers alias
 src/http.ts      ← transport only — fetchJson (Bearer GET + typebox validation), HttpError{status,code,message}
 src/catalog.ts   ← wireDiscovery (catalog + routing rules), PURE mappers for tests:
