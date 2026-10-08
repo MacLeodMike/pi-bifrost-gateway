@@ -158,6 +158,52 @@ describe("publishChains / publishUpstream flags", () => {
 });
 });
 
+describe("thinkingOverrides config", () => {
+	it("parses valid per-member ladders", () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-bifrost-think-"));
+		writeFileSync(
+			join(dir, "pi-bifrost-gateway.json"),
+			JSON.stringify({ thinkingOverrides: { "hyper/glm-5.2": ["low", "high"] } }),
+		);
+		try {
+			const cfg = loadBifrostConfig(dir);
+			expect(cfg.thinkingOverrides).toEqual({ "hyper/glm-5.2": ["low", "high"] });
+			expect(cfg.issues).toEqual([]);
+		} finally {
+			rmSync(dir, { force: true, recursive: true });
+		}
+	});
+
+	it("ignores entries containing unknown levels entirely", () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-bifrost-think-bad-"));
+		writeFileSync(
+			join(dir, "pi-bifrost-gateway.json"),
+			JSON.stringify({ thinkingOverrides: { "hyper/glm-5.2": ["low", "turbo"] } }),
+		);
+		try {
+			const cfg = loadBifrostConfig(dir);
+			// A half-known ladder is a guess; the member keeps the full-map
+			// default rather than shipping a partial override.
+			expect(cfg.thinkingOverrides).toBeUndefined();
+			expect(cfg.issues[0]).toContain("unknown level");
+		} finally {
+			rmSync(dir, { force: true, recursive: true });
+		}
+	});
+
+	it("ignores a non-object thinkingOverrides with an issue", () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-bifrost-think-arr-"));
+		writeFileSync(join(dir, "pi-bifrost-gateway.json"), JSON.stringify({ thinkingOverrides: [] }));
+		try {
+			const cfg = loadBifrostConfig(dir);
+			expect(cfg.thinkingOverrides).toBeUndefined();
+			expect(cfg.issues[0]).toContain("thinkingOverrides");
+		} finally {
+			rmSync(dir, { force: true, recursive: true });
+		}
+	});
+});
+
 describe("legacy config file fallback", () => {
 	it("reads pi-bifrost.json when pi-bifrost-gateway.json is absent", () => {
 		const dir = mkdtempSync(join(tmpdir(), "pi-bifrost-legacy-"));
