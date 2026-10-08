@@ -39,19 +39,21 @@ Violation patterns (in bash/tool invocations): `git reset --hard`, `git checkout
 `git restore .`; any of these in a heredoc or shell command string.
 
 # No explicit `any`
-TypeScript: `: any`, `<any>`, `as any`, and `any[]` are forbidden.
-Literal forbidden substrings anywhere in src/** (including comments and test fixtures):
-`: any`, `<any>`, `as any`, `any[]`. Use `unknown` plus a type guard, or a concrete type.
+The ONLY accepted spelling of "any" in src/** is `unknown` plus a runtime type guard, or a
+concrete union/generic type. Forbidden content anywhere in a src/** file — comments and
+fixtures included — is any of these literal substrings: `: any`, `<any>`, `as any`, `any[]`,
+`Array<any>`, `Record<string, any>`. A `grep` over the changed file finding any of them is a
+violation. `unknown[]`, `never`, and generic type params (`<T>`) are all allowed.
 paths: src/**/*.ts, src/**/*.tsx
 
 # Exported functions declare their return type
-Every `export function` / `export async function` carries an explicit return annotation:
-the header line matches `export (async )?function \w+` AND contains `: ` after the closing
-parenthesis of the parameter list (e.g. `): string {`, `): Promise<Model[]> {`, `): void {`).
-A violation is ANY `export function` / `export async function` whose header line has no
-`): <type> {` before the opening brace (including inferred-only returns and generators
-without annotations). Arrow-function exports (`export const f = (...) => ...`) are exempt
-as they cannot be annotated without a `:` after the parens anyway.
+Every header line in src/** matching `export function` or `export async function` MUST also
+contain a `): <TYPE> {` before the end of that header line — `TYPE` being any non-empty
+string other than whitespace (examples: `): string {`, `): Promise<Model[]> {`, `): void {`,
+`): Provider<"openai-completions"> {`). A violation is a header line ending with `{` directly after the parameter list with no
+`):` annotation. Multi-line parameter lists count by their FINAL header line
+(the one containing the closing `)` and `{`). Overloads declare the return type on the
+signature line too. Arrow exports (`export const f = (...) => ...`) are exempt.
 paths: src/**/*.ts
 
 # Route changes must not rename the slug
@@ -80,21 +82,23 @@ Violation patterns: `Number(` or `parseFloat(` applied directly to a `pricing.pr
 paths: src/**/*.ts
 
 # Chain names come from CEL canonicalization
-In src/catalog.ts, `wireRulesToChains` must derive each published chain's `name` from
-`chainNameFromCel(rule.cel_expression)` — never from `rule.name` (the human label
-`"Chain: <model>"`) and never by hand-built string work. A concrete violation is ANY use of
-`rule.name` as a chain model name, or calling `wireRulesToChains` on a rule whose CEL arms
-(`model == "x"`) canonicalize to 2+ distinct bare names after stripping managed prefixes
-(`chainNameFromCel` returning `undefined`) and the rule still being published.
+In src/catalog.ts, `wireRulesToChains` MUST obtain the published chain `name` from
+`chainNameFromCel(rule.cel_expression)` and never read `rule.name`. A violation is any line
+in src/catalog.ts where a variable assigned from `rule.name` (or from a literal beginning
+`"Chain: `) is used as a chain model name or as the id of a published model, OR any
+`wireRulesToChains`/`buildChainModels` invocation that emits a chain whose
+`chainNameFromCel(...)` result is `undefined`. The `name:` field of every entry emitted by
+`buildChainModels` must equal the chain name extracted from CEL text.
 paths: src/catalog.ts
 
 # Fallback limits stay honest
-When a chain has no catalog-bearing members, pi-ai requires numeric limits; the missing-value
-fallbacks are `CONTEXT_WINDOW_FALLBACK = 128_000` and `MAX_TOKENS_FALLBACK = 8_192`. Publishing
-a made-up model-specific window/limit outside these constants (or omitting contextWindow /
-maxTokens) is a violation.
-Violation pattern in src/catalog.ts: `contextWindow:` or `maxTokens:` computed from anything
-other than member catalog values or the module-scope fallback constants.
+In src/catalog.ts, the literals `128_000` and `8_192` may appear ONLY inside the
+module-scope declarations `const CONTEXT_WINDOW_FALLBACK = 128_000;` and
+`const MAX_TOKENS_FALLBACK = 8_192;`. A violation is any OTHER occurrence of the literal
+`128_000` or `8_192` anywhere in src/** (they must be reached via the two named constants),
+OR `contextWindow` / `maxTokens` fields on a Model built in `buildChainModels`/
+`buildMemberModels` whose value expression is anything other than a member-catalog-derived
+`Math.min(...)` spread or one of those two constants.
 paths: src/**/*.ts
 
 # Show both publish flags in status
@@ -138,30 +142,34 @@ Violation pattern in src/index.ts: removing early returns and hitting the gatewa
 paths: src/index.ts
 
 # Credential paths are exact
-The credential is resolved in exactly one place: `AUTH_ENV_KEYS` (src/bifrost.ts) plumbed
-into `envApiKeyAuth(...)` in src/index.ts. Single-file violations: (a) any OTHER
-`process.env.BIFROST_API_KEY` (or `process.env.GATEWAY_API_KEY`) READ outside
-`AUTH_ENV_KEYS = [...]` in src/bifrost.ts; (b) any `readFile`/`readFileSync` call in
-src/index.ts or src/catalog.ts that opens `auth.json` outside `migrateStoredCredential`
-in src/index.ts; (c) any credential prompting loop (`interaction.prompt(...)`) added
-outside the `login` implementation in src/index.ts.
+Two exact facts must hold within the changed file: (1) in src/bifrost.ts, the ONLY env var
+read for credential purposes appears in the single line `export const AUTH_ENV_KEYS =
+["BIFROST_API_KEY"] as const;` — any OTHER occurrence of `BIFROST_API_KEY` or
+`GATEWAY_API_KEY` in that file is a violation. (2) In src/index.ts and src/catalog.ts, the
+string `auth.json` is read/written ONLY inside `migrateStoredCredential` — a violation is
+any `auth.json` reference or `readFileSync`/`writeFileSync` in those files OUTSIDE that
+function, or a second credential source (`prompt(` loops, `credentials` map reads) added
+outside `bifrostProvider`'s `auth:` line.
 paths: src/**/*.ts
 
 # Slash status command constants must not lie
-User-facing identifiers in src/** must be exactly these literals. A violation is ANY of:
-(a) any `registerCommand(...)` name that is not `"bifrost"` in src/index.ts; (b) the literal substring `/login gateway` anywhere in src/** or
-README.md (only `/login bifrost` is correct); (c) `CONFIG_FILE_NAME` in src/config.ts holding
-a value other than `"pi-bifrost.json"`.
+Grep the changed file. A violation is ANY of these literal occurrences:
+(a) `bifrost-gateway` or `gateway` as the name argument of a `registerCommand(` call in
+src/index.ts (the one status command must be registered as `"bifrost"`);
+(b) the substring `/login gateway` in any src/** or README.md file;
+(c) `CONFIG_FILE_NAME` in src/config.ts holding anything other than `"pi-bifrost.json"`
+(the string literal `'pi-bifrost.json'` in src/config.ts is correct exactly once).
 paths: src/**/*.ts, README.md
 
 # Keep fetchImpl injectable for tests
-src/http.ts MUST keep BOTH of these exact shapes: (a) `export interface FetchJsonOptions {`
-containing the field `fetchImpl?: typeof fetch;`, and (b) inside `fetchJson`, the line
-`const doFetch = opts?.fetchImpl ?? globalThis.fetch;`. Deleting either line, renaming the
-interface or field, or replacing the fallback chain in (b) with an unconditional
-`globalThis.fetch` call is a violation. `fetchJson` must also keep its
-`FetchJsonOptions`-typed optional `opts` parameter. The interface must not be re-exported
-from any module other than src/http.ts, so tests retain one seam to import.
+src/http.ts must contain BOTH of these lines, verbatim:
+(1) `fetchImpl?: typeof fetch;` (inside `interface FetchJsonOptions {`), and
+(2) `const doFetch = opts?.fetchImpl ?? globalThis.fetch;` (inside `fetchJson`).
+A violation is the absence of either line, a rename of `FetchJsonOptions`/`fetchImpl`/
+`opts`, or (2) replaced with a call that doesn't consult `opts?.fetchImpl` first
+(e.g. a bare `globalThis.fetch` call inside `fetchJson`, or `fetch(` not routed through
+`doFetch`). Re-exporting `FetchJsonOptions` from any module other than src/http.ts is also a
+violation.
 paths: src/http.ts
 
 # Never echo VK secrets
@@ -182,14 +190,16 @@ Violation patterns: new module-scope caches keyed by URL + Time in src/catalog.t
 paths: src/**/*.ts
 
 # Typeboxed wire shapes
-Every wire payload is parsed ONLY by `fetchJson` in src/http.ts (Bearer GET + typebox
-validation). Single-file violations: (a) a `JSON.parse(...)` call anywhere in src/catalog.ts
-or src/index.ts whose parsed result is USED (assigned, returned, iterated) rather than
-immediately wrapped in `fetchJson`; (b) `additionalProperties: false` present on any
-`Type.Object` envelope schema (`ModelsEnvelopeSchema`, `VirtualKeysEnvelopeSchema`,
-`RulesEnvelopeSchema`) in src/catalog.ts — extra provider fields must continue to pass
-through unchecked; (c) a `fetchJson` call passing a raw schema (a `Type.Object` value) as the
-`validator` argument instead of a compiled validator from `Compile(...)`.
+In src/catalog.ts and src/index.ts, every HTTP GET of a wire payload goes through `fetchJson`
+with a `Compile(...)`-built validator. Single-file violations:
+(a) any `JSON.parse(...)` in src/catalog.ts/src/index.ts whose parsed value is USED
+(assigned, returned, iterated) instead of being immediately passed to or wrapped by
+`fetchJson` — src/http.ts's own parse-error body handling and src/index.ts's
+`migrateStoredCredential` auth.json read are the ONLY two allowed sites;
+(b) `additionalProperties: false` appearing on `ModelsEnvelopeSchema`,
+`VirtualKeysEnvelopeSchema`, or `RulesEnvelopeSchema` in src/catalog.ts;
+(c) any `fetchJson(...)` call whose `validator` argument is a `Type.Object` literal or
+other uncompiled schema rather than a `Compile(...)` result.
 paths: src/**/*.ts
 
 # Keep the auth.json migration best-effort
