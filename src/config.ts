@@ -149,6 +149,12 @@ export function loadBifrostConfig(agentDir: string): BifrostConfig {
  * Effective gateway base URL: explicit config value, then BIFROST_BASE_URL,
  * then nothing — the caller supplies the built-in default URL.
  */
+/**
+ * Ambient URL for refresh-time resolution: explicit config file wins, then
+ * BIFROST_BASE_URL. NOT the full precedence — a URL captured at /login
+ * (stored in the credential's env) outranks both, because it belongs to the
+ * credential that will serve the request. Undefined = nothing ambient.
+ */
 export function resolveBaseUrl(config: BifrostConfig): string | undefined {
 	if (config.baseUrl) return config.baseUrl;
 	for (const key of URL_KEYS) {

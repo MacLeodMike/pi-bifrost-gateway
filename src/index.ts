@@ -1,12 +1,20 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { createProvider, type Model, type Provider } from "@earendil-works/pi-ai";
+import {
+	createProvider,
+	type ApiKeyAuth,
+	type Model,
+	type Provider,
+} from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 // pi's extension loader doesn't virtualize lazy API implementation subpaths yet
-import { envApiKeyAuth, openAICompletionsApi } from "@earendil-works/pi-ai/compat";
-import { AUTH_ENV_KEYS, PROVIDER_DISPLAY_NAME, PROVIDER_ID } from "./bifrost.js";
+import { openAICompletionsApi } from "@earendil-works/pi-ai/compat";
+import { AUTH_ENV_KEYS, PROVIDER_DISPLAY_NAME, PROVIDER_ID, UNRESOLVED_BASE_URL } from "./bifrost.js";
 import { loadBifrostConfig, resolveBaseUrl } from "./config.js";
 import { buildAllModels, wireDiscovery, wireRulesToChains, wireScopeId } from "./catalog.js";
+
+/** Credential env key carrying the gateway URL captured at /login. */
+const CRED_ENV_URL = "BIFROST_URL";
 
 /**
  * Minimal registration surface `registerBifrostProvider` needs from
@@ -20,6 +28,72 @@ export interface BifrostRegistrationPi {
 		name: string,
 		options: { description?: string; handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> },
 	): void;
+}
+
+/**
+ * Auth for the gateway: the virtual-key value AND, captured at /login, the
+ * gateway URL itself.
+ *
+ * URL precedence is credential-owned > ambient (config file baseUrl, then
+ * BIFROST_BASE_URL): a URL captured at login is stored on the credential
+ * that will serve requests, so it must outrank ambient config that could
+ * describe a different deployment. Exported for the same test-seam reason
+ * as discoverModels: the pi-ai interaction types are impractical to fake
+ * through a full provider runtime.
+ */
+export function gatewayAuth(): ApiKeyAuth {
+	return {
+		name: `${PROVIDER_DISPLAY_NAME} virtual key`,
+		async login(interaction) {
+			interaction.notify({
+				type: "info",
+				message: "Configure your Bifrost gateway. The URL is stored with the credential; ambient config/env remain as fallback.",
+			});
+			const rawUrl = (
+				await interaction.prompt({
+					type: "text",
+					message: `Gateway base URL (ends in /v1; blank to keep ambient config)`,
+					placeholder: "https://your-bifrost.example/v1",
+				})
+			).trim();
+			if (rawUrl && !/^https?:\/\//.test(rawUrl)) {
+				throw new Error(`bifrost: gateway URL must start with http:// or https:// (got "${rawUrl}")`);
+			}
+			const key = (
+				await interaction.prompt({
+					type: "secret",
+					message: `Virtual key (BIFROST_API_KEY)`,
+				})
+			).trim();
+			if (!key) throw new Error("bifrost: login cancelled — a virtual key is required");
+			// URL persists in the credential's provider-scoped env bag exactly
+			// so refresh can pick it up on machines where the config file is
+			// absent; key material stays in the key field, never in env.
+			return {
+				type: "api_key",
+				key,
+				env: rawUrl ? { [CRED_ENV_URL]: rawUrl } : undefined,
+			};
+		},
+		async resolve({ ctx, credential }) {
+			const key = credential?.type === "api_key" ? credential.key : undefined;
+			const credUrl =
+				credential?.type === "api_key" ? (credential.env?.[CRED_ENV_URL] ?? undefined) : undefined;
+			if (!key) {
+				const envKey = await ctx.env(AUTH_ENV_KEYS[0]!);
+				if (!envKey) return undefined;
+				return {
+					auth: { apiKey: envKey },
+					source: AUTH_ENV_KEYS[0],
+				};
+			}
+			return {
+				auth: { apiKey: key },
+				env: credUrl ? { [CRED_ENV_URL]: credUrl } : undefined,
+				source: credUrl ? "stored bifrost credential (key + gateway URL)" : "stored bifrost credential",
+			};
+		},
+	};
 }
 
 /**
@@ -75,16 +149,28 @@ export function bifrostProvider(options: {
 	return createProvider<"openai-completions">({
 		id: PROVIDER_ID,
 		name: PROVIDER_DISPLAY_NAME,
-		baseUrl: options.baseUrl,
-		auth: { apiKey: envApiKeyAuth(PROVIDER_DISPLAY_NAME, [...AUTH_ENV_KEYS]) },
+		// UNRESOLVED_BASE_URL (see bifrost.ts) satisfies createProvider's
+		// shape before any URL exists; it is never requested — discovery
+		// resolves the real URL below, and every published model carries it.
+		baseUrl: options.baseUrl ?? UNRESOLVED_BASE_URL,
+		auth: { apiKey: gatewayAuth() },
 		models: [],
 		api: openAICompletionsApi(),
 		fetchModels: async (context) => {
-			const credential = context.credential;
-			const token = credential?.type === "api_key" ? credential.key : undefined;
+			const credential = context.credential?.type === "api_key" ? context.credential : undefined;
+			const token = credential?.key;
+			// URL precedence: a URL captured at /login (stored on the
+			// credential) wins — it was typed alongside the key that serves
+			// requests. Config-file baseUrl is the ambient fallback, then
+			// BIFROST_BASE_URL. Leaving the URL blank at /login keeps ambient
+			// resolution, so the config file remains a working no-credential-edit pin.
+			const url =
+				credential?.env?.[CRED_ENV_URL] ??
+				options.baseUrl ??
+				(process.env.BIFROST_BASE_URL || undefined);
 			return discoverModels(
 				token,
-				options.baseUrl,
+				url,
 				options.publishChains,
 				options.publishUpstream,
 				options.thinkingOverrides,
@@ -104,8 +190,8 @@ export function registerBifrostProvider(pi: BifrostRegistrationPi, provider: Pro
 			const config = loadBifrostConfig(defaultAgentDir());
 			const status = ctx.modelRegistry.getProviderAuthStatus(PROVIDER_ID);
 			const lines = [
-				`auth: ${status.configured ? "configured" : "missing (set BIFROST_API_KEY or run /login bifrost)"}`,
-				`baseUrl: ${resolveBaseUrl(config) ?? "<not configured — set baseUrl in pi-bifrost-gateway.json or BIFROST_BASE_URL>"}`,
+				`auth: ${status.configured ? "configured" : "missing (run /login bifrost or set BIFROST_API_KEY)"}`,
+				`baseUrl (config/env): ${resolveBaseUrl(config) ?? "<unset — /login bifrost can store it, or set baseUrl / BIFROST_BASE_URL>"}`,
 				`publishChains: ${config.publishChains}, publishUpstream: ${config.publishUpstream}`,
 			];
 			if (config.issues.length > 0) lines.push(`config issues: ${config.issues.join("; ")}`);
@@ -157,17 +243,14 @@ export function migrateLegacyCredential(
 export default function (pi: ExtensionAPI): void {
 	migrateStoredCredential();
 	const config = loadBifrostConfig(defaultAgentDir());
-const resolvedBaseUrl = resolveBaseUrl(config);
-	if (!resolvedBaseUrl) {
-		// Registering a provider whose discovery can never run protects no
-		// one: skip registration entirely so pi shows no bifrost models and
-		// the unconfigured state is visible in /model instead.
-		return;
-	}
+	// Registered even with no URL anywhere: /login must be reachable, and it
+	// stores the URL on the credential for the next refresh. Until a URL and
+	// key exist, fetchModels returns [] without any network — an unconfigured
+	// install publishes zero models.
 	const provider = bifrostProvider({
 		publishChains: config.publishChains,
 		publishUpstream: config.publishUpstream,
-		baseUrl: resolvedBaseUrl,
+		baseUrl: resolveBaseUrl(config),
 		thinkingOverrides: config.thinkingOverrides,
 	});
 	registerBifrostProvider(pi, provider);
