@@ -13,6 +13,22 @@ import { PROVIDER_ID } from "./bifrost.js";
  */
 const PI_THINKING_LEVELS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const satisfies readonly ThinkingLevel[];
 
+/**
+ * Input modalities published for every model this extension serves.
+ *
+ * Bifrost's /v1/models wire carries no modality metadata, so per-model truth
+ * is unknowable at catalog-refresh time. Declaring text-only is the worse
+ * error: pi-ai gates TOOL-RESULT images on model.input and silently replaces
+ * them with "(see attached image)" — a silent data-loss path (user-message
+ * images are forwarded regardless). Declaring image lets tool-result images
+ * through; a genuinely text-only upstream then 400s and Bifrost fails over
+ * to the next chain member, which is visible instead of lossy. This is the
+ * same trade-off as the reasoning:true invariant: false capability is
+ * recoverable, hidden capability is not. Vision-truth per member is tracked
+ * in llm-catalogue's vision-provider-grid.md, not here.
+ */
+const INPUT_MODALITIES = ["text", "image"] as const;
+
 const CONTEXT_WINDOW_FALLBACK = 128_000;
 const MAX_TOKENS_FALLBACK = 8_192;
 
@@ -278,7 +294,7 @@ export function buildChainModels(
 			api: "openai-completions",
 			provider: providerSlug,
 			baseUrl,
-			input: ["text"],
+			input: [...INPUT_MODALITIES],
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 			reasoning: true,
 			contextWindow,
@@ -335,7 +351,7 @@ export function buildMemberModels(
 			api: "openai-completions",
 			provider: providerSlug,
 			baseUrl,
-			input: ["text"],
+			input: [...INPUT_MODALITIES],
 			cost: {
 				input: inputRate ?? 0,
 				output: outputRate ?? 0,

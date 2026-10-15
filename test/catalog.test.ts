@@ -116,7 +116,22 @@ describe("buildChainModels", () => {
 		expect(m.cost.input).toBe(0);
 		expect(m.cost.output).toBe(0);
 		expect(m.reasoning).toBe(true);
-		expect(m.input).toEqual(["text"]);
+		// Input modalities: image is declared so pi-ai forwards tool-result
+		// images instead of silently replacing them (the worse-error rule —
+		// see INPUT_MODALITIES in catalog.ts).
+		expect(m.input).toEqual(["text", "image"]);
+	});
+
+	it("declares image input on member models too (tool-result image gate)", () => {
+		const catalog = [memberModel("hyper/glm-5.3-flash", { context_length: 200_000 })];
+		const chains = [{ name: "glm-5.3-flash", primary: "hyper/glm-5.3-flash", fallbacks: [] }];
+		const models = buildMemberModels(chains, catalog, GATEWAY_ID, BASE_URL);
+		expect(models[0]?.input).toEqual(["text", "image"]);
+		// Fresh array per model — no shared-mutable-array aliasing across entries.
+		const chains2 = [{ name: "kimi-k3", primary: "hyper/kimi-k3", fallbacks: [] }];
+		const more = buildChainModels(chains2, catalog, GATEWAY_ID, BASE_URL);
+		expect(more[0]?.input).toEqual(["text", "image"]);
+		expect(more[0]!.input).not.toBe(models[0]!.input);
 	});
 
 	it("uses a fallback context window when no member has one", () => {
