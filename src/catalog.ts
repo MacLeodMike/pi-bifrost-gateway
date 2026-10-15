@@ -14,7 +14,7 @@ import { PROVIDER_ID } from "./bifrost.js";
 const PI_THINKING_LEVELS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const satisfies readonly ThinkingLevel[];
 
 /**
- * Input modalities published for every model this extension serves.
+ * Input modalities published for models this extension serves.
  *
  * Bifrost's /v1/models wire carries no modality metadata, so per-model truth
  * is unknowable at catalog-refresh time. Declaring text-only is the worse
@@ -28,6 +28,39 @@ const PI_THINKING_LEVELS = ["minimal", "low", "medium", "high", "xhigh", "max"] 
  * in llm-catalogue's vision-provider-grid.md, not here.
  */
 const INPUT_MODALITIES = ["text", "image"] as const;
+const TEXT_ONLY_MODALITIES = ["text"] as const;
+
+/**
+ * Model families with NO image input anywhere in the serving fleet
+ * (user ruling 2026-10-16; evidence in llm-catalogue vision-provider-grid.md).
+ * EXACT bare-name match after stripping the managed prefixes — substring
+ * matching would wrongly sweep vision-capable siblings: glm-5.3-flash is
+ * vision-capable first-party, deepseek-v4.1-flash likewise; only the bare
+ * glm-5.3 / deepseek-v4-flash / deepseek-v4-pro are text-only. hyper's
+ * glm-5.3 additionally SILENT-DROPS images (accepts HTTP 200, ignores the
+ * pixels) — the worst mode, because no 400 means no failover.
+ */
+const TEXT_ONLY_MODELS: ReadonlySet<string> = new Set([
+	"glm-5.3",
+	"deepseek-v4-flash",
+	"deepseek-v4-pro",
+	// upstream snapshot ids price differently but share the text-only weights
+	"deepseek-v4-flash-0731",
+	"deepseek-v4-pro-0813",
+]);
+
+/** Chain ids publish WITHOUT the provider prefix; members publish "provider/model". */
+function bareModelName(id: string): string {
+	const noPrefix = id.includes("/") ? id.slice(id.indexOf("/") + 1) : id;
+	// Strip legacy managed prefixes (gateway/, bifrost/) if a rule CEL ever
+	// produces a prefixed bare name; MANAGED_PREFIXES itself is private to CEL
+	// decoding, so this local strip keeps the denylist honest at both call sites.
+	return noPrefix.replace(/^(gateway|bifrost)\//, "");
+}
+
+function inputFor(id: string): ("text" | "image")[] {
+	return TEXT_ONLY_MODELS.has(bareModelName(id)) ? [...TEXT_ONLY_MODALITIES] : [...INPUT_MODALITIES];
+}
 
 const CONTEXT_WINDOW_FALLBACK = 128_000;
 const MAX_TOKENS_FALLBACK = 8_192;
@@ -294,7 +327,7 @@ export function buildChainModels(
 			api: "openai-completions",
 			provider: providerSlug,
 			baseUrl,
-			input: [...INPUT_MODALITIES],
+			input: [...inputFor(chain.name)],
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 			reasoning: true,
 			contextWindow,
@@ -351,7 +384,7 @@ export function buildMemberModels(
 			api: "openai-completions",
 			provider: providerSlug,
 			baseUrl,
-			input: [...INPUT_MODALITIES],
+			input: [...inputFor(memberId)],
 			cost: {
 				input: inputRate ?? 0,
 				output: outputRate ?? 0,

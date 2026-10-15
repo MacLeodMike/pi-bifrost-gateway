@@ -122,6 +122,55 @@ describe("buildChainModels", () => {
 		expect(m.input).toEqual(["text", "image"]);
 	});
 
+	it("publishes text-only for the glm-5.3 chain (user ruling: never vision-capable)", () => {
+		const models = buildChainModels(
+			[{ name: "glm-5.3", primary: "hyper/glm-5.3", fallbacks: [] }],
+			[],
+			GATEWAY_ID,
+			BASE_URL,
+		);
+		expect(models[0]?.input).toEqual(["text"]);
+		// Sibling sweep guard: glm-5.3-flash is vision-capable first-party and
+		// must NOT inherit the bare glm-5.3 denial (exact-name matching).
+		const flash = buildChainModels(
+			[{ name: "glm-5.3-flash", primary: "hyper/glm-5.3-flash", fallbacks: [] }],
+			[],
+			GATEWAY_ID,
+			BASE_URL,
+		);
+		expect(flash[0]?.input).toEqual(["text", "image"]);
+	});
+
+	it("publishes text-only for the deepseek-v4-flash and deepseek-v4-pro chains, image for v4.1", () => {
+		for (const name of ["deepseek-v4-flash", "deepseek-v4-pro"]) {
+			const models = buildChainModels([{ name, primary: `ollama-cloud/${name}`, fallbacks: [] }], [], GATEWAY_ID, BASE_URL);
+			expect(models[0]?.input, name).toEqual(["text"]);
+		}
+		// deepseek-v4.1-flash is vision-capable — the version-suffix denial
+		// must not bleed into the .1 generation.
+		const v41 = buildChainModels(
+			[{ name: "deepseek-v4.1-flash", primary: "hyper/deepseek-v4.1-flash", fallbacks: [] }],
+			[],
+			GATEWAY_ID,
+			BASE_URL,
+		);
+		expect(v41[0]?.input).toEqual(["text", "image"]);
+	});
+
+	it("applies the text-only denylist to member models by bare name", () => {
+		const catalog = [
+			memberModel("hyper/glm-5.3"),
+			memberModel("hyper/glm-5.3-flash"),
+			memberModel("ollama-cloud/deepseek-v4-pro-0813"),
+		];
+		const chains = [{ name: "glm-5.3-flash", primary: "hyper/glm-5.3-flash", fallbacks: [] }];
+		const models = buildMemberModels(chains, catalog, GATEWAY_ID, BASE_URL);
+		const byId = new Map(models.map((m) => [m.id, m] as const));
+		expect(byId.get("hyper/glm-5.3")?.input).toEqual(["text"]);
+		expect(byId.get("hyper/glm-5.3-flash")?.input).toEqual(["text", "image"]);
+		expect(byId.get("ollama-cloud/deepseek-v4-pro-0813")?.input).toEqual(["text"]);
+	});
+
 	it("declares image input on member models too (tool-result image gate)", () => {
 		const catalog = [memberModel("hyper/glm-5.3-flash", { context_length: 200_000 })];
 		const chains = [{ name: "glm-5.3-flash", primary: "hyper/glm-5.3-flash", fallbacks: [] }];
