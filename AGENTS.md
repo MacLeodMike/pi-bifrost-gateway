@@ -38,9 +38,10 @@ Adding a custom stream is a design-level decision, never a drive-by fix.
 
 - Auth: `Authorization: Bearer <VK value>` on the inference surface
   (`/v1/*`). `/v1/models` is 401 unauthenticated.
-- Management API is **unauthenticated on this deployment** (iidm: dashboard
-  auth disabled by design); if that posture ever changes, these calls
-  fail loud with 401/403 — do not silently retry or fabricate data.
+- Management API auth is deployment-dependent: dashboard-auth-disabled
+  deployments leave `/api/*` unauthenticated; when dashboard auth is
+  enabled, these calls fail loud with 401/403 — do not silently retry or
+  fabricate data.
 - `GET /v1/models` → `{data:[...]}`; items carry `id` as `provider/model`,
   `context_length`, `pricing` as per-token STRINGS
   (`prompt`/`completion`/`input_cache_read`), `owned_by`. Chain names do
@@ -172,11 +173,9 @@ A failed refresh persists EMPTY models to models-store.json — delete the
   `/v1`/`/v1/` from the inference base URL. Joining the bare path to the
   base without re-adding `/` produced `.../v1models` (SPA HTML 404) —
   pinned by test.
-- **Git signing**: fresh clones inherit `gpg.format=ssh` globally but need
-  `git config user.signingkey ~/.ssh/<signing-key>.pub` locally,
-  and `--format=%G?` shows `N` unless
-  `gpg.ssh.allowedSignersFile=~/.ssh/allowed_signers`
-  is passed (or configured).
+- **Git signing**: commit identity/signing setup is maintainer-environment;
+  note only that `git log --format=%G?` shows `N` unless
+  `gpg.ssh.allowedSignersFile` is configured for verification.
 - **History rewrite pattern** (pi-inferhub precedent): interactive rebase
   `--exec` loops hang without a TTY. Use
   `FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch --env-filter '...' \
