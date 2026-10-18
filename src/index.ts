@@ -3,15 +3,18 @@ import { join } from "node:path";
 import {
 	createProvider,
 	type ApiKeyAuth,
-	type Model,
 	type Provider,
 } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 // pi's extension loader doesn't virtualize lazy API implementation subpaths yet
-import { openAICompletionsApi } from "@earendil-works/pi-ai/compat";
+import {
+	anthropicMessagesApi,
+	openAICompletionsApi,
+	openAIResponsesApi,
+} from "@earendil-works/pi-ai/compat";
 import { AUTH_ENV_KEYS, PROVIDER_DISPLAY_NAME, PROVIDER_ID, UNRESOLVED_BASE_URL } from "./bifrost.js";
 import { loadBifrostConfig, resolveBaseUrl } from "./config.js";
-import { buildAllModels, wireDiscovery, wireRulesToChains, wireScopeId } from "./catalog.js";
+import { buildAllModels, type GatewayModel, type SurfaceApi, wireDiscovery, wireRulesToChains, wireScopeId } from "./catalog.js";
 
 /** Credential env key carrying the gateway URL captured at /login. */
 const CRED_ENV_URL = "BIFROST_URL";
@@ -115,7 +118,7 @@ export async function discoverModels(
 	publishUpstream: boolean,
 	thinkingOverrides?: Record<string, string[]>,
 	signal?: AbortSignal,
-): Promise<Model<"openai-completions">[]> {
+): Promise<GatewayModel[]> {
 	if (!token || !baseUrl) return [];
 
 	const scopeId = await wireScopeId(token, baseUrl, signal);
@@ -145,8 +148,8 @@ export function bifrostProvider(options: {
 	publishUpstream: boolean;
 	baseUrl?: string;
 	thinkingOverrides?: Record<string, string[]>;
-}): Provider<"openai-completions"> {
-	return createProvider<"openai-completions">({
+}): Provider<SurfaceApi> {
+	return createProvider<SurfaceApi>({
 		id: PROVIDER_ID,
 		name: PROVIDER_DISPLAY_NAME,
 		// UNRESOLVED_BASE_URL (see bifrost.ts) satisfies createProvider's
@@ -155,7 +158,16 @@ export function bifrostProvider(options: {
 		baseUrl: options.baseUrl ?? UNRESOLVED_BASE_URL,
 		auth: { apiKey: gatewayAuth() },
 		models: [],
-		api: openAICompletionsApi(),
+		// Native-protocol surfaces (2026-10-18): createProvider dispatches on
+		// model.api — anthropic-messages for claude-family chains (wired to
+		// the gateway's /anthropic integration route), openai-responses for
+		// gpt-family chains, chat completions for everything else. Surface
+		// selection lives in catalog.ts surfaceFor().
+		api: {
+			"openai-completions": openAICompletionsApi(),
+			"openai-responses": openAIResponsesApi(),
+			"anthropic-messages": anthropicMessagesApi(),
+		},
 		fetchModels: async (context) => {
 			const credential = context.credential?.type === "api_key" ? context.credential : undefined;
 			const token = credential?.key;

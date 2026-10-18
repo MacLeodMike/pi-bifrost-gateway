@@ -62,6 +62,45 @@ function inputFor(id: string): ("text" | "image")[] {
 	return TEXT_ONLY_MODELS.has(bareModelName(id)) ? [...TEXT_ONLY_MODALITIES] : [...INPUT_MODALITIES];
 }
 
+/** Model apis this extension publishes, keyed to pi-ai's registered implementations. */
+export type SurfaceApi = "openai-completions" | "openai-responses" | "anthropic-messages";
+export type GatewayModel = Model<"openai-completions"> | Model<"openai-responses"> | Model<"anthropic-messages">;
+
+/**
+ * Which native wire a model NAME speaks (pi-inferhub nativeFamily, ported
+ * 2026-10-18 — the 2026-10-18 native-protocol gateway split routes claude
+ * through the anthropic-base provider and gpt through responses-native
+ * inferhub-openai, so the client must speak the matching wire).
+ *
+ * Family of the model NAME (last path segment), never the serving prefix:
+ * the live catalog has `kiro/` serving both claude-* and gpt-* rows.
+ * `gpt-oss` is an open-weight model, not an [OI] native one, so it stays
+ * other; `o\d` catches o3/o4-style rows, `codex` the codex family.
+ */
+export type NativeFamily = "anthropic" | "openai" | "other";
+
+export function nativeFamily(id: string): NativeFamily {
+	const name = (id.split("/").pop() ?? id).toLowerCase();
+	if (name.includes("claude")) return "anthropic";
+	if (/^(gpt(?!-oss)|o\d|codex)/.test(name)) return "openai";
+	return "other";
+}
+
+/**
+ * Client wire + base URL for one model id, per the native-protocol ruling:
+ * native wire wherever the family has one, chat completions everywhere else
+ * (the gateway translates). Anthropic-messages models point at the
+ * gateway's /anthropic integration prefix WITHOUT /v1 — pi-ai's Anthropic
+ * SDK appends /v1/messages itself, landing on the integration route
+ * (x-api-key VK auth verified live 2026-10-18).
+ */
+export function surfaceFor(id: string, baseUrl: string): { api: SurfaceApi; baseUrl: string } {
+	const family = nativeFamily(id);
+	if (family === "anthropic") return { api: "anthropic-messages", baseUrl: `${managementBase(baseUrl)}/anthropic` };
+	if (family === "openai") return { api: "openai-responses", baseUrl };
+	return { api: "openai-completions", baseUrl };
+}
+
 const CONTEXT_WINDOW_FALLBACK = 128_000;
 const MAX_TOKENS_FALLBACK = 8_192;
 
@@ -296,24 +335,47 @@ export function perMtok(dollarsPerToken: string): number | undefined {
 }
 
 /**
- * The published map ships the full ladder (chains are transport-only: the
- * gateway routes effort). A direct member with a config-declared subset gets
- * exactly that subset — pi disables levels it sends for a model.
+ * The published map ships the full ladder for transport surfaces (chains are
+ * transport-only: the gateway routes effort). A direct member with a
+ * config-declared subset gets exactly that subset — pi disables levels it
+ * sends for a model.
+ *
+ * Per-surface `off` values (pi-inferhub, live-verified 2026-10-18):
+ * - openai-completions: "off" — gateway-normalized passthrough.
+ * - openai-responses: "none" — [OI] reasoning-off is effort "none"; "off" is
+ *   accepted but leaves the effort unset.
+ * - anthropic-messages: null — these Claude models reject
+ *   thinking:{type:"disabled"} (400); null makes pi-ai omit the field.
+ *   Level keys stay absent so pi keeps every level selectable (optimistic by
+ *   design) — the Anthropic effort ladder has no "minimal", so the completions
+ *   ladder would advertise a level pi-ai cannot express on this surface.
  */
-function thinkingLevelMap(levels?: readonly string[]): ThinkingLevelMap {
+function thinkingLevelMap(api: SurfaceApi, levels?: readonly string[]): ThinkingLevelMap {
+	if (api === "anthropic-messages") return { off: null };
+	if (api === "openai-responses") {
+		const map: ThinkingLevelMap = { off: "none" };
+		for (const level of levels ?? PI_THINKING_LEVELS) map[level as ThinkingLevel] = level as ThinkingLevel;
+		return map;
+	}
 	const ladder = levels ?? PI_THINKING_LEVELS;
 	const map: ThinkingLevelMap = { off: "off" };
 	for (const level of ladder) map[level as ThinkingLevel] = level as ThinkingLevel;
 	return map;
 }
 
-/** Build one bifrost/<chain> chat model per chain. Cost is 0 by design. */
+/**
+ * Build one bifrost/<chain> chat model per chain. Cost is 0 by design. The
+ * wire follows the chain's model-family (native protocol end to end): the
+ * chain name decides — fallback legs of a chain are same-model by
+ * construction, and the gateway translates any client wire for legs that
+ * differ.
+ */
 export function buildChainModels(
 	chains: Chain[],
 	catalog: CatalogModel[],
 	providerSlug: string,
 	baseUrl: string,
-): Model<"openai-completions">[] {
+): GatewayModel[] {
 	const byId = new Map(catalog.map((m) => [m.id, m] as const));
 	return chains.map((chain) => {
 		const members = [chain.primary, ...chain.fallbacks];
@@ -321,21 +383,72 @@ export function buildChainModels(
 			.map((id) => byId.get(id)?.context_length)
 			.filter((v): v is number => typeof v === "number");
 		const contextWindow = contexts.length > 0 ? Math.min(...contexts) : CONTEXT_WINDOW_FALLBACK;
-		const model: Model<"openai-completions"> = {
+		return buildModel({
 			id: `${providerSlug}/${chain.name}`,
 			name: chain.name,
-			api: "openai-completions",
+			familyId: chain.name,
 			provider: providerSlug,
 			baseUrl,
-			input: [...inputFor(chain.name)],
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			reasoning: true,
 			contextWindow,
 			maxTokens: MAX_TOKENS_FALLBACK,
-			thinkingLevelMap: thinkingLevelMap(),
+		});
+	});
+}
+
+/** Shared field assembly for both builders; the surface (api/baseUrl/map/
+ * compat) derives from the model NAME's native family. */
+function buildModel(args: {
+	id: string;
+	name: string;
+	/** The id whose NAME decides the family (chain name or member id). */
+	familyId: string;
+	provider: string;
+	baseUrl: string;
+	cost: GatewayModel["cost"];
+	contextWindow: number;
+	maxTokens: number;
+	thinkingLevels?: readonly string[];
+}): GatewayModel {
+	const surface = surfaceFor(args.familyId, args.baseUrl);
+	const common = {
+		id: args.id,
+		name: args.name,
+		provider: args.provider as Model<"openai-completions">["provider"],
+		input: [...inputFor(args.familyId)],
+		cost: args.cost,
+		reasoning: true as const,
+		contextWindow: args.contextWindow,
+		maxTokens: args.maxTokens,
+	};
+	if (surface.api === "anthropic-messages") {
+		const model: Model<"anthropic-messages"> = {
+			...common,
+			api: surface.api,
+			baseUrl: surface.baseUrl,
+			thinkingLevelMap: thinkingLevelMap(surface.api),
+			// These Claude models reject thinking:{type:"disabled"} (400,
+			// live-verified in pi-inferhub 2026-10-18) — always adaptive.
+			compat: { forceAdaptiveThinking: true },
 		};
 		return model;
-	});
+	}
+	if (surface.api === "openai-responses") {
+		const model: Model<"openai-responses"> = {
+			...common,
+			api: surface.api,
+			baseUrl: surface.baseUrl,
+			thinkingLevelMap: thinkingLevelMap(surface.api, args.thinkingLevels),
+		};
+		return model;
+	}
+	const model: Model<"openai-completions"> = {
+		...common,
+		api: surface.api,
+		baseUrl: surface.baseUrl,
+		thinkingLevelMap: thinkingLevelMap(surface.api, args.thinkingLevels),
+	};
+	return model;
 }
 
 /**
@@ -348,7 +461,7 @@ export function buildMemberModels(
 	providerSlug: string,
 	baseUrl: string,
 	thinkingOverrides?: Record<string, string[]>,
-): Model<"openai-completions">[] {
+): GatewayModel[] {
 	const memberIds: string[] = [];
 	const seen = new Set<string>();
 	for (const chain of chains) {
@@ -366,7 +479,7 @@ export function buildMemberModels(
 			memberIds.push(entry.id);
 		}
 	}
-	const models: Model<"openai-completions">[] = [];
+	const models: GatewayModel[] = [];
 	for (const memberId of memberIds) {
 		const entry = byId.get(memberId);
 		if (!entry) continue; // chain member absent from /v1/models — skip rather than guess
@@ -378,24 +491,24 @@ export function buildMemberModels(
 		// Bifrost's datasheet is populated.
 		const cacheReadRate = entry.pricing?.input_cache_read ? perMtok(entry.pricing.input_cache_read) : undefined;
 		const cacheWriteRate = entry.pricing?.input_cache_write ? perMtok(entry.pricing.input_cache_write) : undefined;
-		models.push({
-			id: memberId,
-			name: memberId,
-			api: "openai-completions",
-			provider: providerSlug,
-			baseUrl,
-			input: [...inputFor(memberId)],
-			cost: {
-				input: inputRate ?? 0,
-				output: outputRate ?? 0,
-				cacheRead: cacheReadRate ?? 0,
-				cacheWrite: cacheWriteRate ?? 0,
-			},
-			reasoning: true,
-			contextWindow: entry.context_length ?? CONTEXT_WINDOW_FALLBACK,
-			maxTokens: entry.max_output_limit ?? MAX_TOKENS_FALLBACK,
-			thinkingLevelMap: thinkingLevelMap(thinkingOverrides?.[memberId]),
-		});
+		models.push(
+			buildModel({
+				id: memberId,
+				name: memberId,
+				familyId: memberId,
+				provider: providerSlug,
+				baseUrl,
+				cost: {
+					input: inputRate ?? 0,
+					output: outputRate ?? 0,
+					cacheRead: cacheReadRate ?? 0,
+					cacheWrite: cacheWriteRate ?? 0,
+				},
+				contextWindow: entry.context_length ?? CONTEXT_WINDOW_FALLBACK,
+				maxTokens: entry.max_output_limit ?? MAX_TOKENS_FALLBACK,
+				thinkingLevels: thinkingOverrides?.[memberId],
+			}),
+		);
 	}
 	return models;
 }
@@ -409,7 +522,7 @@ export function buildAllModels(
 	publishChains: boolean,
 	publishUpstream: boolean,
 	thinkingOverrides?: Record<string, string[]>,
-): Model<"openai-completions">[] {
+): GatewayModel[] {
 	const chainModels = publishChains ? buildChainModels(chains, catalog, providerSlug, baseUrl) : [];
 	const upstreamModels = publishUpstream ? buildMemberModels(chains, catalog, providerSlug, baseUrl, thinkingOverrides) : [];
 	return [...chainModels, ...upstreamModels];

@@ -306,3 +306,77 @@ describe("chain id prefix (bifrost)", () => {
 		expect(chains[0]?.name).toBe("glm-5.2");
 	});
 });
+
+describe("native-protocol surfaces (2026-10-18 gateway split)", () => {
+	it("claude-family chains publish anthropic-messages at the /anthropic integration prefix", () => {
+		const chains = [{ name: "claude-sonnet-5-5", primary: "inferhub-anthropic/claude-sonnet-5-5", fallbacks: [] }];
+		const models = buildChainModels(chains, [], GATEWAY_ID, BASE_URL);
+		expect(models[0]?.api).toBe("anthropic-messages");
+		// Anthropic SDK appends /v1/messages itself — baseUrl must be the
+		// gateway root + the integration prefix, never the /v1 base.
+		expect(models[0]?.baseUrl).toBe("https://llm-gateway.example.com/anthropic");
+		expect(models[0]?.thinkingLevelMap).toEqual({ off: null });
+		expect(models[0]?.compat).toEqual({ forceAdaptiveThinking: true });
+	});
+
+	it("gpt-family chains publish openai-responses with off:none on the /v1 base", () => {
+		const chains = [{ name: "gpt-6-luna", primary: "inferhub-openai/gpt-6-luna", fallbacks: [] }];
+		const models = buildChainModels(chains, [], GATEWAY_ID, BASE_URL);
+		expect(models[0]?.api).toBe("openai-responses");
+		expect(models[0]?.baseUrl).toBe(BASE_URL);
+		expect(models[0]?.thinkingLevelMap).toEqual({
+			off: "none",
+			minimal: "minimal",
+			low: "low",
+			medium: "medium",
+			high: "high",
+			xhigh: "xhigh",
+			max: "max",
+		});
+		expect(models[0]?.compat).toBeUndefined();
+	});
+
+	it("open-weight chains stay openai-completions with off:off", () => {
+		const chains = [{ name: "glm-5.3-flash", primary: "hyper/glm-5.3-flash", fallbacks: ["inferhub-openai/glm-5.3-flash"] }];
+		const models = buildChainModels(chains, [], GATEWAY_ID, BASE_URL);
+		expect(models[0]?.api).toBe("openai-completions");
+		expect(models[0]?.baseUrl).toBe(BASE_URL);
+		expect(models[0]?.thinkingLevelMap).toEqual({
+			off: "off",
+			minimal: "minimal",
+			low: "low",
+			medium: "medium",
+			high: "high",
+			xhigh: "xhigh",
+			max: "max",
+		});
+	});
+
+	it("gpt-oss stays chat completions (open-weight, not an [OI]-native model)", () => {
+		const models = buildMemberModels([], [memberModel("inferhub-openai/gpt-oss-120b")], GATEWAY_ID, BASE_URL);
+		expect(models[0]?.api).toBe("openai-completions");
+	});
+
+	it("family comes from the model NAME, never the serving prefix", () => {
+		const catalog = [
+			memberModel("kiro/claude-sonnet-5-5"),
+			memberModel("kiro/gpt-5.6-luna"),
+			memberModel("cc/claude-opus-5-5"),
+			memberModel("cx/gpt-6-astra"),
+		];
+		const models = buildMemberModels([], catalog, GATEWAY_ID, BASE_URL);
+		const byId = new Map(models.map((m) => [m.id, m] as const));
+		expect(byId.get("kiro/claude-sonnet-5-5")?.api).toBe("anthropic-messages");
+		expect(byId.get("kiro/gpt-5.6-luna")?.api).toBe("openai-responses");
+		expect(byId.get("cc/claude-opus-5-5")?.api).toBe("anthropic-messages");
+		expect(byId.get("cx/gpt-6-astra")?.api).toBe("openai-responses");
+	});
+
+	it("member anthropic models carry the adaptive-thinking pin; completions members do not", () => {
+		const catalog = [memberModel("inferhub-anthropic/claude-opus-5-5"), memberModel("hyper/glm-5.3")];
+		const models = buildMemberModels([], catalog, GATEWAY_ID, BASE_URL);
+		const byId = new Map(models.map((m) => [m.id, m] as const));
+		expect(byId.get("inferhub-anthropic/claude-opus-5-5")?.compat).toEqual({ forceAdaptiveThinking: true });
+		expect(byId.get("hyper/glm-5.3")?.compat).toBeUndefined();
+	});
+});
