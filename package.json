@@ -1,7 +1,7 @@
 {
 	"name": "pi-bifrost-gateway",
 	"version": "0.3.0",
-	"description": "Pi extension for a Bifrost LLM gateway: chain models from VK routing rules + upstream member catalog",
+	"description": "Pi extension for a Bifrost LLM gateway: chain models from VK routing rules and/or the full upstream model catalogue, with optional per-family native protocol surfaces",
 	"license": "MIT",
 	"keywords": [
 		"pi-package"

@@ -8,14 +8,18 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
-- **BREAKING** `publishChains` now defaults to `false`. A stock Bifrost
-  gateway has no chains-first routing rules, and chains mode fails discovery
-  loud when none exist — the conservative default registers only the
-  upstream catalog. Installs that want chain models set `publishChains: true`
-  explicitly.
+- **BREAKING** `publishChains` now defaults to `false`. Chains mode fails
+  discovery loud when no usable routing rules exist — the conservative
+  default publishes only the upstream catalog and needs no governance.
+  Installs that want chain models set `publishChains: true` explicitly.
 
 ### Added
 
+- Member-catalog-only mode: with `publishChains: false`, discovery uses the
+  inference plane alone (`GET /v1/models`) — no management-API access — so
+  the full upstream catalogue publishes against a stock gateway with
+  governance disabled entirely. Previously discovery required chains and
+  management access unconditionally.
 - `nativeProtocols` config (`responses` / `messages` toggles, both default
   `false`): publish matching models as `openai-responses` /
   `anthropic-messages` so claude-family and gpt-family chains talk their

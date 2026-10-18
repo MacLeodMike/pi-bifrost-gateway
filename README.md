@@ -1,12 +1,15 @@
 # pi-bifrost-gateway
 
 Pi extension for a [Bifrost](https://github.com/maximhq/bifrost) LLM gateway:
-publishes the gateway's chain models as first-class pi models instead of a
-hand-maintained `models.json` block.
+publishes the gateway's models as first-class pi models — chain models from
+the VK's routing rules, the full upstream model catalogue, or both — instead
+of a hand-maintained `models.json` block. Optional per-family native
+protocol surfaces let OpenAI-family models speak the Responses API and
+Anthropic-family models speak Messages end to end.
 
-Companion-package note: this is the chains-first flavor (VK routing-rule
-discovery via the Bifrost management API). It fills the same provider slot
-as [lxdlam/pi-bifrost-provider](https://github.com/lxdlam/pi-bifrost-provider)
+Companion-package note: this is the management-API flavor (governance-aware:
+virtual-key discovery and routing-rule chains). It fills the same provider
+slot as [lxdlam/pi-bifrost-provider](https://github.com/lxdlam/pi-bifrost-provider)
 (standalone-instance flavor) — install one OR the other, not both.
 
 ## Install
@@ -40,7 +43,11 @@ env var.
 
 ## How it works
 
-`fetchModels` (runs on startup, `/model`, `/reload`, `/login`) does, live:
+Two publishing modes, selectable independently:
+
+**Chains mode** (`publishChains: true`) — requires a gateway with
+chains-first routing rules. `fetchModels` (runs on startup, `/model`,
+`/reload`, `/login`) does, live:
 
 1. `GET /v1/models` (your VK Bearer) — member catalog with per-member pricing
    and context windows.
@@ -51,7 +58,21 @@ env var.
    give member ids.
 
 From that it emits one pi model per chain (`bifrost/<chain>`, e.g.
-`bifrost/glm-5.3-flash`), with `contextWindow` = min member window.
+`bifrost/glm-5.3-flash`), with `contextWindow` = min member window. A rules
+set with no usable chains fails discovery loud.
+
+**Member-only mode** (`publishChains: false`, the default) — the inference
+plane alone: one `GET /v1/models` and the **full upstream catalogue** is
+published as direct-selectable models (`provider/model`, e.g.
+`hyper/glm-5.3-flash`) with real per-member pricing and context windows. No
+management-API access at all, so it works against a stock gateway with
+governance disabled entirely. Both modes can be combined (`publishChains:
+true` + `publishUpstream: true`) — chains first, then the catalogue.
+
+In both modes, `nativeProtocols` (see Configuration) can switch matching
+model families from chat completions to their native wire — `openai-responses`
+for the gpt family, `anthropic-messages` for the claude family — so the
+client protocol matches what your gateway/upstream speaks.
 
 ## Auth
 
@@ -82,8 +103,9 @@ CONSERVATIVE — `publishChains` false, chat completions everywhere:
 
 - `publishChains` (default **false**): emit the `bifrost/<chain>` models
   from the VK's routing rules. Requires a gateway with chains-first
-  routing rules for the credential's VK; a stock gateway without chains
-  fails discovery loud, which is why the default is off.
+  routing rules for the credential's VK; a rules set without usable
+  chains fails discovery loud. Leave it off (the default) for a stock
+  gateway — member-only mode needs no governance at all.
 - `publishUpstream: false` hides the direct-selectable upstream catalog
   (`hyper/glm-5.3-flash`, `pareto/glm-5.3-flash`, …) with real per-member
   pricing. `publishMembers` is accepted as a legacy alias.
@@ -119,7 +141,7 @@ CONSERVATIVE — `publishChains` false, chat completions everywhere:
 Chain models carry **zero** cost by design: pi recomputes cost from catalog
 rates and cannot know which member actually served a chain request. Bifrost
 `/api/logs` (cost + cost_breakdown per request) remains the system of record.
-Member models (when published) carry real `$/Mtok` rates from `/v1/models`.
+Upstream catalogue models carry real `$/Mtok` rates from `/v1/models`.
 
 ## Commands
 

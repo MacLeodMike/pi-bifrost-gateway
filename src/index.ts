@@ -14,7 +14,7 @@ import {
 } from "@earendil-works/pi-ai/compat";
 import { AUTH_ENV_KEYS, PROVIDER_DISPLAY_NAME, PROVIDER_ID, UNRESOLVED_BASE_URL } from "./bifrost.js";
 import { loadBifrostConfig, resolveBaseUrl, type NativeProtocols } from "./config.js";
-import { buildAllModels, type GatewayModel, type SurfaceApi, wireDiscovery, wireRulesToChains, wireScopeId } from "./catalog.js";
+import { buildAllModels, type GatewayModel, type SurfaceApi, wireCatalog, wireDiscovery, wireRulesToChains, wireScopeId } from "./catalog.js";
 
 /** Credential env key carrying the gateway URL captured at /login. */
 const CRED_ENV_URL = "BIFROST_URL";
@@ -116,6 +116,15 @@ export function gatewayAuth(): ApiKeyAuth {
  * (`/v1/models`) + this VK's routing rules → chain models (`bifrost/<chain>`)
  * and, when configured, direct-selectable member models.
  * Returns an empty list when the credential or baseUrl is missing.
+ *
+ * Two modes:
+ * - publishChains true (chains mode): the management plane is queried —
+ *   VK self-identification + routing rules — and a rules set with no
+ *   usable chains fails discovery loud.
+ * - publishChains false (member-only mode): the inference plane alone is
+ *   used (just `GET /v1/models`); no management calls, so it works against
+ *   a stock gateway with governance disabled entirely.
+ *
  * AUTH SPLIT: the inference catalog uses the VK itself; the management
  * plane (VK lookup + rules) uses `managementApiKey` when set, else the VK.
  * When `thinkingOverrides` carries an entry for a member id, that member's
@@ -123,7 +132,8 @@ export function gatewayAuth(): ApiKeyAuth {
  * (a member that rejects effort levels it doesn't support would otherwise
  * 400 every effort-pinned request).
  * Throws when discovery itself fails (bad credential, unreachable gateway,
- * VK not recognized) so pi surfaces the error instead of silently dropping.
+ * VK not recognized in chains mode) so pi surfaces the error instead of
+ * silently dropping.
  */
 export async function discoverModels(
 	token: string | undefined,
@@ -139,21 +149,29 @@ export async function discoverModels(
 ): Promise<GatewayModel[]> {
 	if (!token || !baseUrl) return [];
 
-	const managementToken = options.managementApiKey ?? token;
-	const scopeId = await wireScopeId(managementToken, token, baseUrl, signal);
-	if (!scopeId) {
-		throw new Error(
-			"bifrost: credential does not match any virtual key in /api/governance/virtual-keys",
-		);
+	if (options.publishChains) {
+		const managementToken = options.managementApiKey ?? token;
+		const scopeId = await wireScopeId(managementToken, token, baseUrl, signal);
+		if (!scopeId) {
+			throw new Error(
+				"bifrost: credential does not match any virtual key in /api/governance/virtual-keys",
+			);
+		}
+		const { catalog, rules } = await wireDiscovery(managementToken, token, baseUrl, scopeId, signal);
+		const chains = wireRulesToChains(rules);
+		if (chains.length === 0) {
+			throw new Error(
+				`bifrost: no chain routing rules found for ${scopeId} — is chains-first routing configured for this VK?`,
+			);
+		}
+		return buildAllModels(chains, catalog, PROVIDER_ID, baseUrl, true, options.publishUpstream, options.thinkingOverrides, options.nativeProtocols);
 	}
-	const { catalog, rules } = await wireDiscovery(managementToken, token, baseUrl, scopeId, signal);
-	const chains = wireRulesToChains(rules);
-	if (chains.length === 0) {
-		throw new Error(
-			`bifrost: no chain routing rules found for ${scopeId} — is chains-first routing configured for this VK?`,
-		);
-	}
-	return buildAllModels(chains, catalog, PROVIDER_ID, baseUrl, options.publishChains, options.publishUpstream, options.thinkingOverrides, options.nativeProtocols);
+
+	// Member-only mode: inference plane only. Both publish flags off means
+	// the caller wants nothing — skip the catalog fetch entirely.
+	if (!options.publishUpstream) return [];
+	const catalog = await wireCatalog(token, baseUrl, signal);
+	return buildAllModels([], catalog, PROVIDER_ID, baseUrl, false, true, options.thinkingOverrides, options.nativeProtocols);
 }
 
 /**
