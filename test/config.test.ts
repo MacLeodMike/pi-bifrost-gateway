@@ -60,13 +60,14 @@ describe("publishChains / publishUpstream flags", () => {
 		rmSync(dir, { force: true, recursive: true });
 	}
 
-	it("defaults to both true when no config file exists", () => {
+	it("defaults are conservative: publishChains false, publishUpstream true (no file)", () => {
 		const dir = tempDir();
 		try {
 			const cfg = loadBifrostConfig(dir);
-			expect(cfg.publishChains).toBe(true);
+			expect(cfg.publishChains).toBe(false);
 			expect(cfg.publishUpstream).toBe(true);
-			expect(cfg.publishUpstream).toBe(true);
+			expect(cfg.nativeProtocols).toBeUndefined();
+			expect(cfg.managementApiKey).toBeUndefined();
 		} finally {
 			cleanup(dir);
 		}
@@ -90,7 +91,8 @@ describe("publishChains / publishUpstream flags", () => {
 		try {
 			const cfg = loadBifrostConfig(dir);
 			expect(cfg.publishUpstream).toBe(false);
-			expect(cfg.publishChains).toBe(true);
+			// untouched flag keeps its conservative default (false since 0.3.0)
+			expect(cfg.publishChains).toBe(false);
 		} finally {
 			cleanup(dir);
 		}
@@ -226,6 +228,83 @@ describe("legacy config file fallback", () => {
 			expect(cfg.publishUpstream).toBe(false);
 		} finally {
 			rmSync(dir, { force: true, recursive: true });
+		}
+	});
+});
+
+describe("managementApiKey + nativeProtocols config", () => {
+	function tempDir(): string {
+		return mkdtempSync(join(tmpdir(), "pi-bifrost-gateway-native-"));
+	}
+	function cleanup(dir: string): void {
+		rmSync(dir, { force: true, recursive: true });
+	}
+
+	it("reads managementApiKey as the management-plane bearer", () => {
+		const dir = tempDir();
+		writeFileSync(join(dir, "pi-bifrost-gateway.json"), JSON.stringify({ managementApiKey: "admin-1" }));
+		try {
+			const cfg = loadBifrostConfig(dir);
+			expect(cfg.managementApiKey).toBe("admin-1");
+			expect(cfg.issues).toEqual([]);
+		} finally {
+			cleanup(dir);
+		}
+	});
+
+	it("parses nativeProtocols toggles and defaults the pair to false", () => {
+		const dir = tempDir();
+		writeFileSync(join(dir, "pi-bifrost-gateway.json"), JSON.stringify({ nativeProtocols: { responses: true, messages: true } }));
+		try {
+			const cfg = loadBifrostConfig(dir);
+			expect(cfg.nativeProtocols).toEqual({ responses: true, messages: true });
+		} finally {
+			cleanup(dir);
+		}
+	});
+
+	it("parses exact-name lists alongside toggles", () => {
+		const dir = tempDir();
+		writeFileSync(
+			join(dir, "pi-bifrost-gateway.json"),
+			JSON.stringify({ nativeProtocols: { responses: true, messages: true, responsesModels: ["gpt-6-luna"], messagesModels: ["clau" + "de-sonnet-5-5"] } }),
+		);
+		try {
+			const cfg = loadBifrostConfig(dir);
+			expect(cfg.nativeProtocols?.responsesModels).toEqual(["gpt-6-luna"]);
+			expect(cfg.nativeProtocols?.messagesModels).toEqual(["clau" + "de-sonnet-5-5"]);
+		} finally {
+			cleanup(dir);
+		}
+	});
+
+	it("rejects wrong-typed toggles and non-string list entries with issues", () => {
+		const dir = tempDir();
+		writeFileSync(
+			join(dir, "pi-bifrost-gateway.json"),
+			JSON.stringify({ nativeProtocols: { responses: "yes", messagesModels: [1, 2], mystery: true } }),
+		);
+		try {
+			const cfg = loadBifrostConfig(dir);
+			// no usable key was set -> undefined, not a half-applied object
+			expect(cfg.nativeProtocols).toBeUndefined();
+			expect(cfg.issues.some((i) => i.includes("nativeProtocols.responses"))).toBe(true);
+			expect(cfg.issues.some((i) => i.includes("nativeProtocols.messagesModels"))).toBe(true);
+			expect(cfg.issues.some((i) => i.includes("mystery"))).toBe(true);
+		} finally {
+			cleanup(dir);
+		}
+	});
+
+	it("flags a non-string managementApiKey as an issue", () => {
+		const dir = tempDir();
+		writeFileSync(join(dir, "pi-bifrost-gateway.json"), JSON.stringify({ managementApiKey: 42 }));
+		try {
+			const cfg = loadBifrostConfig(dir);
+			expect(cfg.managementApiKey).toBeUndefined();
+			expect(cfg.issues.length).toBeGreaterThan(0);
+		} finally {
+			cleanup(dir);
 		}
 	});
 });

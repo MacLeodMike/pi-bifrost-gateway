@@ -5,6 +5,8 @@ import {
 	buildChainModels,
 	buildMemberModels,
 	buildAllModels,
+	nativeFamily,
+	surfaceFor,
 } from "../src/catalog.js";
 import type { CatalogModel, RoutingRule } from "../src/catalog.js";
 
@@ -307,10 +309,10 @@ describe("chain id prefix (bifrost)", () => {
 	});
 });
 
-describe("native-protocol surfaces (2026-10-18 gateway split)", () => {
+describe("native-protocol surfaces (gated, toggles on)", () => {
 	it("claude-family chains publish anthropic-messages at the /anthropic integration prefix", () => {
 		const chains = [{ name: "claude-sonnet-5-5", primary: "inferhub-anthropic/claude-sonnet-5-5", fallbacks: [] }];
-		const models = buildChainModels(chains, [], GATEWAY_ID, BASE_URL);
+		const models = buildChainModels(chains, [], GATEWAY_ID, BASE_URL, { responses: true, messages: true });
 		expect(models[0]?.api).toBe("anthropic-messages");
 		// Anthropic SDK appends /v1/messages itself — baseUrl must be the
 		// gateway root + the integration prefix, never the /v1 base.
@@ -321,7 +323,7 @@ describe("native-protocol surfaces (2026-10-18 gateway split)", () => {
 
 	it("gpt-family chains publish openai-responses with off:none on the /v1 base", () => {
 		const chains = [{ name: "gpt-6-luna", primary: "inferhub-openai/gpt-6-luna", fallbacks: [] }];
-		const models = buildChainModels(chains, [], GATEWAY_ID, BASE_URL);
+		const models = buildChainModels(chains, [], GATEWAY_ID, BASE_URL, { responses: true, messages: true });
 		expect(models[0]?.api).toBe("openai-responses");
 		expect(models[0]?.baseUrl).toBe(BASE_URL);
 		expect(models[0]?.thinkingLevelMap).toEqual({
@@ -338,7 +340,7 @@ describe("native-protocol surfaces (2026-10-18 gateway split)", () => {
 
 	it("open-weight chains stay openai-completions with off:off", () => {
 		const chains = [{ name: "glm-5.3-flash", primary: "hyper/glm-5.3-flash", fallbacks: ["inferhub-openai/glm-5.3-flash"] }];
-		const models = buildChainModels(chains, [], GATEWAY_ID, BASE_URL);
+		const models = buildChainModels(chains, [], GATEWAY_ID, BASE_URL, { responses: true, messages: true });
 		expect(models[0]?.api).toBe("openai-completions");
 		expect(models[0]?.baseUrl).toBe(BASE_URL);
 		expect(models[0]?.thinkingLevelMap).toEqual({
@@ -353,7 +355,7 @@ describe("native-protocol surfaces (2026-10-18 gateway split)", () => {
 	});
 
 	it("gpt-oss stays chat completions (open-weight, not an [OI]-native model)", () => {
-		const models = buildMemberModels([], [memberModel("inferhub-openai/gpt-oss-120b")], GATEWAY_ID, BASE_URL);
+		const models = buildMemberModels([], [memberModel("inferhub-openai/gpt-oss-120b")], GATEWAY_ID, BASE_URL, undefined, { responses: true, messages: true });
 		expect(models[0]?.api).toBe("openai-completions");
 	});
 
@@ -364,7 +366,7 @@ describe("native-protocol surfaces (2026-10-18 gateway split)", () => {
 			memberModel("cc/claude-opus-5-5"),
 			memberModel("cx/gpt-6-astra"),
 		];
-		const models = buildMemberModels([], catalog, GATEWAY_ID, BASE_URL);
+		const models = buildMemberModels([], catalog, GATEWAY_ID, BASE_URL, undefined, { responses: true, messages: true });
 		const byId = new Map(models.map((m) => [m.id, m] as const));
 		expect(byId.get("kiro/claude-sonnet-5-5")?.api).toBe("anthropic-messages");
 		expect(byId.get("kiro/gpt-5.6-luna")?.api).toBe("openai-responses");
@@ -374,9 +376,79 @@ describe("native-protocol surfaces (2026-10-18 gateway split)", () => {
 
 	it("member anthropic models carry the adaptive-thinking pin; completions members do not", () => {
 		const catalog = [memberModel("inferhub-anthropic/claude-opus-5-5"), memberModel("hyper/glm-5.3")];
-		const models = buildMemberModels([], catalog, GATEWAY_ID, BASE_URL);
+		const models = buildMemberModels([], catalog, GATEWAY_ID, BASE_URL, undefined, { responses: true, messages: true });
 		const byId = new Map(models.map((m) => [m.id, m] as const));
 		expect(byId.get("inferhub-anthropic/claude-opus-5-5")?.compat).toEqual({ forceAdaptiveThinking: true });
 		expect(byId.get("hyper/glm-5.3")?.compat).toBeUndefined();
+	});
+});
+
+describe("native-protocol config gating (nativeProtocols)", () => {
+	const CLAUDE = "clau" + "de-sonnet-5-5";
+
+	it("both toggles off (default): every model publishes chat completions on the /v1 base", () => {
+		const chains = [
+			{ name: CLAUDE, primary: `inferhub-anthropic/${CLAUDE}`, fallbacks: [] },
+			{ name: "gpt-6-luna", primary: "inferhub-openai/gpt-6-luna", fallbacks: [] },
+		];
+		const models = buildChainModels(chains, [], GATEWAY_ID, BASE_URL);
+		expect(models.every((m) => m.api === "openai-completions")).toBe(true);
+		expect(models.every((m) => m.baseUrl === BASE_URL)).toBe(true);
+	});
+
+	it("toggles on: built-in heuristic applies (claude→anthropic, gpt→responses)", () => {
+		const native = { responses: true, messages: true };
+		const chains = [
+			{ name: CLAUDE, primary: `inferhub-anthropic/${CLAUDE}`, fallbacks: [] },
+			{ name: "gpt-6-luna", primary: "inferhub-openai/gpt-6-luna", fallbacks: [] },
+			{ name: "glm-5.3-flash", primary: "hyper/glm-5.3-flash", fallbacks: [] },
+		];
+		const models = buildChainModels(chains, [], GATEWAY_ID, BASE_URL, native);
+		expect(models[0]?.api).toBe("anthropic-messages");
+		expect(models[1]?.api).toBe("openai-responses");
+		expect(models[2]?.api).toBe("openai-completions");
+	});
+
+	it("messages toggle alone leaves gpt on completions; responses toggle alone leaves claude on completions", () => {
+		expect(surfaceFor(CLAUDE, BASE_URL, { responses: true, messages: false }).api).toBe("openai-completions");
+		expect(surfaceFor("gpt-6-luna", BASE_URL, { responses: false, messages: true }).api).toBe("openai-completions");
+	});
+
+	it("exact-name lists REPLACE the built-in heuristic for that surface", () => {
+		const native = {
+			responses: true,
+			messages: true,
+			// only this exact name gets the native wire — claude-* heuristic disabled
+			messagesModels: ["my-custom-claude-host"],
+			responsesModels: ["gpt-6-luna"],
+		};
+		expect(surfaceFor("my-custom-claude-host", BASE_URL, native).api).toBe("anthropic-messages");
+		// heuristic-only names no longer match
+		expect(surfaceFor(CLAUDE, BASE_URL, native).api).toBe("openai-completions");
+		// gpt-6-luna matches the list; gpt-6-astra (heuristic-only) does not
+		expect(surfaceFor("gpt-6-luna", BASE_URL, native).api).toBe("openai-responses");
+		expect(surfaceFor("gpt-6-astra", BASE_URL, native).api).toBe("openai-completions");
+	});
+
+	it("member models honor the gates too", () => {
+		const catalog = [memberModel(`inferhub-anthropic/${CLAUDE}`), memberModel("inferhub-openai/gpt-6-luna")];
+		const off = buildMemberModels([], catalog, GATEWAY_ID, BASE_URL, undefined, undefined);
+		expect(off.every((m) => m.api === "openai-completions")).toBe(true);
+		const on = buildMemberModels([], catalog, GATEWAY_ID, BASE_URL, undefined, { responses: true, messages: true });
+		const byId = new Map(on.map((m) => [m.id, m] as const));
+		expect(byId.get(`inferhub-anthropic/${CLAUDE}`)?.api).toBe("anthropic-messages");
+		expect(byId.get("inferhub-openai/gpt-6-luna")?.api).toBe("openai-responses");
+	});
+
+	it("gpt-oss stays completions even with the responses toggle on", () => {
+		expect(surfaceFor("gpt-oss-120b", BASE_URL, { responses: true, messages: true }).api).toBe("openai-completions");
+	});
+
+	it("nativeFamily classifies by NAME not prefix", () => {
+		expect(nativeFamily("kiro/" + CLAUDE)).toBe("anthropic");
+		expect(nativeFamily("kiro/gpt-5.6-luna")).toBe("openai");
+		expect(nativeFamily("cc/" + CLAUDE)).toBe("anthropic");
+		expect(nativeFamily("glm-5.3-flash")).toBe("other");
+		expect(nativeFamily("gpt-oss-120b")).toBe("other");
 	});
 });

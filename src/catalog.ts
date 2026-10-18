@@ -1,4 +1,5 @@
 import type { Model, ThinkingLevel, ThinkingLevelMap } from "@earendil-works/pi-ai";
+import type { NativeProtocols } from "./config.js";
 import { Type } from "typebox";
 import { Compile } from "typebox/compile";
 import { fetchJson, type FetchJsonOptions } from "./http.js";
@@ -68,14 +69,13 @@ export type GatewayModel = Model<"openai-completions"> | Model<"openai-responses
 
 /**
  * Which native wire a model NAME speaks (pi-inferhub nativeFamily, ported
- * 2026-10-18 — the 2026-10-18 native-protocol gateway split routes claude
- * through the anthropic-base provider and gpt through responses-native
- * inferhub-openai, so the client must speak the matching wire).
- *
- * Family of the model NAME (last path segment), never the serving prefix:
- * the live catalog has `kiro/` serving both claude-* and gpt-* rows.
- * `gpt-oss` is an open-weight model, not an [OI] native one, so it stays
- * other; `o\d` catches o3/o4-style rows, `codex` the codex family.
+ * 2026-10-18). BUILT-IN heuristic — the user-facing gates live in config
+ * (nativeProtocols.responses/messages toggles, plus exact-name lists that
+ * replace this heuristic when set). Family of the model NAME (last path
+ * segment), never the serving prefix: the live catalog has `kiro/` serving
+ * both claude-* and gpt-* rows. `gpt-oss` is an open-weight model, not an
+ * [OI] native one, so it stays other; `o\d` catches o3/o4-style rows,
+ * `codex` the codex family.
  */
 export type NativeFamily = "anthropic" | "openai" | "other";
 
@@ -86,18 +86,41 @@ export function nativeFamily(id: string): NativeFamily {
 	return "other";
 }
 
+/** Bare (last-segment) name of a model id or chain name. */
+function bareName(id: string): string {
+	return id.split("/").pop() ?? id;
+}
+
 /**
- * Client wire + base URL for one model id, per the native-protocol ruling:
- * native wire wherever the family has one, chat completions everywhere else
- * (the gateway translates). Anthropic-messages models point at the
- * gateway's /anthropic integration prefix WITHOUT /v1 — pi-ai's Anthropic
- * SDK appends /v1/messages itself, landing on the integration route
- * (x-api-key VK auth verified live 2026-10-18).
+ * Client wire + base URL for one model id, per config:
+ * - nativeProtocols.messages on + (name in messagesModels list, or built-in
+ *   claude heuristic when no list) → anthropic-messages at the gateway's
+ *   /anthropic integration prefix (pi-ai's Anthropic SDK appends /v1/messages
+ *   itself; x-api-key VK auth verified live).
+ * - nativeProtocols.responses on + (responsesModels list, or built-in gpt
+ *   heuristic) → openai-responses on the /v1 base.
+ * - otherwise openai-completions — the only wire every Bifrost serves, and
+ *   the gateway translates at the boundary anyway.
  */
-export function surfaceFor(id: string, baseUrl: string): { api: SurfaceApi; baseUrl: string } {
-	const family = nativeFamily(id);
-	if (family === "anthropic") return { api: "anthropic-messages", baseUrl: `${managementBase(baseUrl)}/anthropic` };
-	if (family === "openai") return { api: "openai-responses", baseUrl };
+export function surfaceFor(
+	id: string,
+	baseUrl: string,
+	native?: NativeProtocols,
+): { api: SurfaceApi; baseUrl: string } {
+	if (native?.messages) {
+		const name = bareName(id).toLowerCase();
+		const match = native.messagesModels
+			? native.messagesModels.some((m) => m.toLowerCase() === name)
+			: nativeFamily(id) === "anthropic";
+		if (match) return { api: "anthropic-messages", baseUrl: `${managementBase(baseUrl)}/anthropic` };
+	}
+	if (native?.responses) {
+		const name = bareName(id).toLowerCase();
+		const match = native.responsesModels
+			? native.responsesModels.some((m) => m.toLowerCase() === name)
+			: nativeFamily(id) === "openai";
+		if (match) return { api: "openai-responses", baseUrl };
+	}
 	return { api: "openai-completions", baseUrl };
 }
 
@@ -229,51 +252,59 @@ export function managementBase(baseUrl: string): string {
 }
 
 /**
- * GET /api/governance/virtual-keys and match the stored credential value to
- * discover this plugin's VK id (the scope_id for routing-rule filtering).
- * Returns undefined when no VK row's value matches the token.
+ * GET /api/governance/virtual-keys and match the INFERENCE credential value
+ * (the VK) against VK values to discover this plugin's VK id (the scope_id
+ * for routing-rule filtering). AUTH on the call is the MANAGEMENT token
+ * (config managementApiKey, falling back to the VK — the split matters on
+ * deployments whose management plane expects a different credential than
+ * inference). Returns undefined when no VK row's value matches vkValue.
  */
 export async function wireScopeId(
-	token: string,
+	managementToken: string,
+	vkValue: string,
 	baseUrl: string,
 	signal?: AbortSignal,
 	opts?: FetchJsonOptions,
 ): Promise<string | undefined> {
 	const url = `${managementBase(baseUrl)}${MANAGEMENT_PATH_VIRTUAL_KEYS}`;
-	const envelope = await fetchJson(url, token, VirtualKeysEnvelopeValidator, signal, opts);
+	const envelope = await fetchJson(url, managementToken, VirtualKeysEnvelopeValidator, signal, opts);
 	const keys = (envelope as { virtual_keys: VirtualKey[] }).virtual_keys;
-	const match = keys.find((vk) => vk.value === token);
+	const match = keys.find((vk) => vk.value === vkValue);
 	return match?.id;
 }
 
 /**
  * GET /api/routing/rules?scope=virtual_key&scope_id=<id> and decode the
- * chain rules. Throws when Bifrost responds with an error envelope
- * (schema mismatch or HTTP error surfaced by fetchJson).
+ * chain rules. AUTH is the MANAGEMENT token (see wireScopeId). Throws when
+ * Bifrost responds with an error envelope (schema mismatch or HTTP error
+ * surfaced by fetchJson).
  */
 export async function wireRules(
-	token: string,
+	managementToken: string,
 	baseUrl: string,
 	scopeId: string,
 	signal?: AbortSignal,
 	opts?: FetchJsonOptions,
 ): Promise<RoutingRule[]> {
 	const url = `${managementBase(baseUrl)}${MANAGEMENT_PATH_ROUTING_RULES}?scope=virtual_key&scope_id=${encodeURIComponent(scopeId)}`;
-	const envelope = await fetchJson(url, token, RulesEnvelopeValidator, signal, opts);
+	const envelope = await fetchJson(url, managementToken, RulesEnvelopeValidator, signal, opts);
 	return (envelope as { rules: RoutingRule[] }).rules;
 }
 
-/** Full discovery: catalog + rules for the VK, in parallel where possible. */
+/** Full discovery: catalog + rules for the VK, in parallel where possible.
+ * AUTH: management plane (VK lookup + rules) uses managementToken; the
+ * inference catalog uses the VK itself. */
 export async function wireDiscovery(
-	token: string,
+	managementToken: string,
+	vkValue: string,
 	baseUrl: string,
 	scopeId: string,
 	signal?: AbortSignal,
 	opts?: FetchJsonOptions,
 ): Promise<{ catalog: CatalogModel[]; rules: RoutingRule[] }> {
 	const [catalog, rules] = await Promise.all([
-		wireCatalog(token, baseUrl, signal, opts),
-		wireRules(token, baseUrl, scopeId, signal, opts),
+		wireCatalog(vkValue, baseUrl, signal, opts),
+		wireRules(managementToken, baseUrl, scopeId, signal, opts),
 	]);
 	return { catalog, rules };
 }
@@ -375,6 +406,7 @@ export function buildChainModels(
 	catalog: CatalogModel[],
 	providerSlug: string,
 	baseUrl: string,
+	native?: NativeProtocols,
 ): GatewayModel[] {
 	const byId = new Map(catalog.map((m) => [m.id, m] as const));
 	return chains.map((chain) => {
@@ -389,6 +421,7 @@ export function buildChainModels(
 			familyId: chain.name,
 			provider: providerSlug,
 			baseUrl,
+			native,
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 			contextWindow,
 			maxTokens: MAX_TOKENS_FALLBACK,
@@ -405,12 +438,13 @@ function buildModel(args: {
 	familyId: string;
 	provider: string;
 	baseUrl: string;
+	native?: NativeProtocols;
 	cost: GatewayModel["cost"];
 	contextWindow: number;
 	maxTokens: number;
 	thinkingLevels?: readonly string[];
 }): GatewayModel {
-	const surface = surfaceFor(args.familyId, args.baseUrl);
+	const surface = surfaceFor(args.familyId, args.baseUrl, args.native);
 	const common = {
 		id: args.id,
 		name: args.name,
@@ -461,6 +495,7 @@ export function buildMemberModels(
 	providerSlug: string,
 	baseUrl: string,
 	thinkingOverrides?: Record<string, string[]>,
+	native?: NativeProtocols,
 ): GatewayModel[] {
 	const memberIds: string[] = [];
 	const seen = new Set<string>();
@@ -498,6 +533,7 @@ export function buildMemberModels(
 				familyId: memberId,
 				provider: providerSlug,
 				baseUrl,
+				native,
 				cost: {
 					input: inputRate ?? 0,
 					output: outputRate ?? 0,
@@ -522,9 +558,12 @@ export function buildAllModels(
 	publishChains: boolean,
 	publishUpstream: boolean,
 	thinkingOverrides?: Record<string, string[]>,
+	native?: NativeProtocols,
 ): GatewayModel[] {
-	const chainModels = publishChains ? buildChainModels(chains, catalog, providerSlug, baseUrl) : [];
-	const upstreamModels = publishUpstream ? buildMemberModels(chains, catalog, providerSlug, baseUrl, thinkingOverrides) : [];
+	const chainModels = publishChains ? buildChainModels(chains, catalog, providerSlug, baseUrl, native) : [];
+	const upstreamModels = publishUpstream
+		? buildMemberModels(chains, catalog, providerSlug, baseUrl, thinkingOverrides, native)
+		: [];
 	return [...chainModels, ...upstreamModels];
 }
 

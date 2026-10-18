@@ -161,8 +161,8 @@ describe("registerBifrostProvider", () => {
 
 describe("discoverModels", () => {
 	it("returns empty when token or baseUrl is missing", async () => {
-		expect(await discoverModels(undefined, BASE_URL, true, false)).toEqual([]);
-		expect(await discoverModels("token", undefined, true, false)).toEqual([]);
+		expect(await discoverModels(undefined, BASE_URL, { publishChains: true, publishUpstream: false })).toEqual([]);
+		expect(await discoverModels("token", undefined, { publishChains: true, publishUpstream: false })).toEqual([]);
 	});
 });
 

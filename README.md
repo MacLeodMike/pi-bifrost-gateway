@@ -69,20 +69,50 @@ credential to carry its URL.
 
 ## Configuration
 
-`~/.pi/agent/pi-bifrost-gateway.json` (all keys optional; both publish flags default
-to `true`):
+`~/.pi/agent/pi-bifrost-gateway.json` (all keys optional). Defaults are
+CONSERVATIVE — `publishChains` false, chat completions everywhere:
 
 ```json
-{ "publishChains": true, "publishUpstream": true }
+{
+  "publishChains": true,
+  "publishUpstream": true,
+  "nativeProtocols": { "responses": true, "messages": true }
+}
 ```
 
-- `publishChains: false` hides the `bifrost/<chain>` models.
+- `publishChains` (default **false**): emit the `bifrost/<chain>` models
+  from the VK's routing rules. Requires a gateway with chains-first
+  routing rules for the credential's VK; a stock gateway without chains
+  fails discovery loud, which is why the default is off.
 - `publishUpstream: false` hides the direct-selectable upstream catalog
   (`hyper/glm-5.3-flash`, `pareto/glm-5.3-flash`, …) with real per-member
   pricing. `publishMembers` is accepted as a legacy alias.
 - `baseUrl` (optional) gateway `/v1` URL; then env `BIFROST_BASE_URL`. There
   is NO built-in default URL: with neither set (and no URL stored by
   `/login bifrost`), the plugin registers zero models.
+- `managementApiKey` (optional) bearer for the management plane
+  (`/api/governance/virtual-keys`, `/api/routing/rules`). Defaults to the
+  inference credential (the VK) — correct for dashboard-auth-disabled
+  deployments that accept the VK on `/api/*`. Set it when the management
+  plane expects a different credential than inference. The VK-value match
+  (VK self-identification) always uses the INFERENCE credential, never
+  this key.
+- `nativeProtocols` (optional; both toggles default **false**) selects the
+  client wire per model family:
+  - `responses: true` — models matching the built-in [OI]-native family
+    heuristic (`gpt-*` except `gpt-oss*`, `o<n>`, `codex*`) publish as
+    `openai-responses`. Requires a gateway serving `POST /v1/responses`.
+  - `messages: true` — models matching the built-in Anthropic family
+    heuristic (`claude-*` in the NAME) publish as `anthropic-messages`,
+    pointed at the gateway's `/anthropic` integration route. Requires a
+    gateway with the Anthropic integration prefix registered.
+  - `responsesModels` / `messagesModels` (optional arrays of exact bare
+    model names, e.g. `["gpt-6-luna"]`): when set, the list REPLACES the
+    built-in heuristic for that surface — list membership is the only path
+    to the native wire. Name matching is case-insensitive, last path
+    segment (the serving prefix never decides).
+  - Both off (default): every model publishes chat completions — the only
+    wire every Bifrost serves; the gateway translates at the boundary.
 
 ## Cost
 

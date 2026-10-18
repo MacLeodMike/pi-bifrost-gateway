@@ -13,7 +13,7 @@ import {
 	openAIResponsesApi,
 } from "@earendil-works/pi-ai/compat";
 import { AUTH_ENV_KEYS, PROVIDER_DISPLAY_NAME, PROVIDER_ID, UNRESOLVED_BASE_URL } from "./bifrost.js";
-import { loadBifrostConfig, resolveBaseUrl } from "./config.js";
+import { loadBifrostConfig, resolveBaseUrl, type NativeProtocols } from "./config.js";
 import { buildAllModels, type GatewayModel, type SurfaceApi, wireDiscovery, wireRulesToChains, wireScopeId } from "./catalog.js";
 
 /** Credential env key carrying the gateway URL captured at /login. */
@@ -111,30 +111,49 @@ export function gatewayAuth(): ApiKeyAuth {
  * Throws when discovery itself fails (bad credential, unreachable gateway,
  * VK not recognized) so pi surfaces the error instead of silently dropping.
  */
+/**
+ * Compose the gateway model list from live Bifrost state: member catalog
+ * (`/v1/models`) + this VK's routing rules → chain models (`bifrost/<chain>`)
+ * and, when configured, direct-selectable member models.
+ * Returns an empty list when the credential or baseUrl is missing.
+ * AUTH SPLIT: the inference catalog uses the VK itself; the management
+ * plane (VK lookup + rules) uses `managementApiKey` when set, else the VK.
+ * When `thinkingOverrides` carries an entry for a member id, that member's
+ * direct-selectable model ships the override ladder instead of the full one
+ * (a member that rejects effort levels it doesn't support would otherwise
+ * 400 every effort-pinned request).
+ * Throws when discovery itself fails (bad credential, unreachable gateway,
+ * VK not recognized) so pi surfaces the error instead of silently dropping.
+ */
 export async function discoverModels(
 	token: string | undefined,
 	baseUrl: string | undefined,
-	publishChains: boolean,
-	publishUpstream: boolean,
-	thinkingOverrides?: Record<string, string[]>,
+	options: {
+		publishChains: boolean;
+		publishUpstream: boolean;
+		managementApiKey?: string;
+		nativeProtocols?: NativeProtocols;
+		thinkingOverrides?: Record<string, string[]>;
+	},
 	signal?: AbortSignal,
 ): Promise<GatewayModel[]> {
 	if (!token || !baseUrl) return [];
 
-	const scopeId = await wireScopeId(token, baseUrl, signal);
+	const managementToken = options.managementApiKey ?? token;
+	const scopeId = await wireScopeId(managementToken, token, baseUrl, signal);
 	if (!scopeId) {
 		throw new Error(
 			"bifrost: credential does not match any virtual key in /api/governance/virtual-keys",
 		);
 	}
-	const { catalog, rules } = await wireDiscovery(token, baseUrl, scopeId, signal);
+	const { catalog, rules } = await wireDiscovery(managementToken, token, baseUrl, scopeId, signal);
 	const chains = wireRulesToChains(rules);
 	if (chains.length === 0) {
 		throw new Error(
 			`bifrost: no chain routing rules found for ${scopeId} — is chains-first routing configured for this VK?`,
 		);
 	}
-	return buildAllModels(chains, catalog, PROVIDER_ID, baseUrl, publishChains, publishUpstream, thinkingOverrides);
+	return buildAllModels(chains, catalog, PROVIDER_ID, baseUrl, options.publishChains, options.publishUpstream, options.thinkingOverrides, options.nativeProtocols);
 }
 
 /**
@@ -147,6 +166,8 @@ export function bifrostProvider(options: {
 	publishChains: boolean;
 	publishUpstream: boolean;
 	baseUrl?: string;
+	managementApiKey?: string;
+	nativeProtocols?: NativeProtocols;
 	thinkingOverrides?: Record<string, string[]>;
 }): Provider<SurfaceApi> {
 	return createProvider<SurfaceApi>({
@@ -158,11 +179,13 @@ export function bifrostProvider(options: {
 		baseUrl: options.baseUrl ?? UNRESOLVED_BASE_URL,
 		auth: { apiKey: gatewayAuth() },
 		models: [],
-		// Native-protocol surfaces (2026-10-18): createProvider dispatches on
-		// model.api — anthropic-messages for claude-family chains (wired to
-		// the gateway's /anthropic integration route), openai-responses for
-		// gpt-family chains, chat completions for everything else. Surface
-		// selection lives in catalog.ts surfaceFor().
+		// Native-protocol surfaces: createProvider dispatches on model.api —
+		// anthropic-messages for claude-family chains (wired to the gateway's
+		// /anthropic integration route), openai-responses for gpt-family
+		// chains, chat completions for everything else. Which models get a
+		// native wire is config-gated (nativeProtocols; both off by default).
+		// The map always registers all three: the registry entry is inert for
+		// models that never publish that api.
 		api: {
 			"openai-completions": openAICompletionsApi(),
 			"openai-responses": openAIResponsesApi(),
@@ -180,14 +203,7 @@ export function bifrostProvider(options: {
 				credential?.env?.[CRED_ENV_URL] ??
 				options.baseUrl ??
 				(process.env.BIFROST_BASE_URL || undefined);
-			return discoverModels(
-				token,
-				url,
-				options.publishChains,
-				options.publishUpstream,
-				options.thinkingOverrides,
-				context.signal,
-			);
+			return discoverModels(token, url, options, context.signal);
 		},
 	});
 }
@@ -263,6 +279,8 @@ export default function (pi: ExtensionAPI): void {
 		publishChains: config.publishChains,
 		publishUpstream: config.publishUpstream,
 		baseUrl: resolveBaseUrl(config),
+		managementApiKey: config.managementApiKey,
+		nativeProtocols: config.nativeProtocols,
 		thinkingOverrides: config.thinkingOverrides,
 	});
 	registerBifrostProvider(pi, provider);
