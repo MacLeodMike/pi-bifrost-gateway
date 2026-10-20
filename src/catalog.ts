@@ -127,6 +127,34 @@ export function surfaceFor(
 const CONTEXT_WINDOW_FALLBACK = 128_000;
 const MAX_TOKENS_FALLBACK = 8_192;
 
+/**
+ * Max output tokens per bare model name. Bifrost's [OI]-compat /v1/models
+ * wire serializes only id/created/owned_by/context_window (+ enrichment
+ * pricing/architecture) — max_output_limit never reaches it (0/86 rows,
+ * verified 2026-10-20), so without this map every model falls back to 8192
+ * and long generations hard-stop there. Values from inferhub.dev/pricing
+ * "N max output" rows (2026-10-20); kimi-k2.7-code is unlisted there and
+ * takes kimi-k2.5/k2.6's 32K conservatively.
+ */
+const MAX_OUTPUT: Readonly<Record<string, number>> = {
+	"glm-5.3-flash": 128_000,
+	"glm-5.3": 128_000,
+	"kimi-k3": 128_000,
+	"kimi-k2.7-code": 32_000,
+	"deepseek-v4-pro": 384_000,
+	"deepseek-v4.1-flash": 384_000,
+	"minimax-m3": 512_000,
+	"minimax-m3.1-flash-preview": 512_000,
+	"qwen3.8-flash": 128_000,
+	"qwen3.8-max": 128_000,
+	"gpt-6-luna": 128_000,
+	"gpt-6-astra": 128_000,
+	"gpt-6.1-sol": 128_000,
+	"claude-sonnet-5-5": 128_000,
+	"claude-fable-5-1": 128_000,
+	"claude-opus-5-5": 128_000,
+};
+
 /* ---------- wire schemas (typebox-validated) ---------- */
 
 const PricingSchema = Type.Object({
@@ -424,7 +452,7 @@ export function buildChainModels(
 			native,
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 			contextWindow,
-			maxTokens: MAX_TOKENS_FALLBACK,
+			maxTokens: MAX_OUTPUT[chain.name] ?? MAX_TOKENS_FALLBACK,
 		});
 	});
 }
@@ -541,7 +569,7 @@ export function buildMemberModels(
 					cacheWrite: cacheWriteRate ?? 0,
 				},
 				contextWindow: entry.context_length ?? CONTEXT_WINDOW_FALLBACK,
-				maxTokens: entry.max_output_limit ?? MAX_TOKENS_FALLBACK,
+				maxTokens: entry.max_output_limit ?? MAX_OUTPUT[bareModelName(memberId)] ?? MAX_TOKENS_FALLBACK,
 				thinkingLevels: thinkingOverrides?.[memberId],
 			}),
 		);

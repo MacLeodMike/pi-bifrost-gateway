@@ -124,6 +124,28 @@ describe("buildChainModels", () => {
 		expect(m.input).toEqual(["text", "image"]);
 	});
 
+	it("carries the curated max-output value for mapped chains (wire never ships max_output_limit)", () => {
+		const chains = [
+			{ name: "minimax-m3", primary: "hyper/minimax-m3", fallbacks: [] },
+			{ name: "kimi-k2.7-code", primary: "ocg/kimi-k2.7-code", fallbacks: [] },
+			{ name: "deepseek-v4.1-flash", primary: "ocg/deepseek-v4.1-flash", fallbacks: [] },
+			{ name: "some-unknown-chain", primary: "acme/thing", fallbacks: [] },
+		];
+		const catalog = [
+			memberModel("hyper/minimax-m3"),
+			memberModel("ocg/kimi-k2.7-code"),
+			memberModel("ocg/deepseek-v4.1-flash"),
+			memberModel("acme/thing"),
+		];
+		const models = buildChainModels(chains, catalog, GATEWAY_ID, BASE_URL);
+		const byName = new Map(models.map((m) => [m.name, m]));
+		expect(byName.get("minimax-m3")?.maxTokens).toBe(512_000);
+		expect(byName.get("kimi-k2.7-code")?.maxTokens).toBe(32_000);
+		expect(byName.get("deepseek-v4.1-flash")?.maxTokens).toBe(384_000);
+		// unmapped names keep the conservative fallback
+		expect(byName.get("some-unknown-chain")?.maxTokens).toBe(8_192);
+	});
+
 	it("publishes text-only for the glm-5.3 chain (user ruling: never vision-capable)", () => {
 		const models = buildChainModels(
 			[{ name: "glm-5.3", primary: "hyper/glm-5.3", fallbacks: [] }],
@@ -244,6 +266,14 @@ describe("buildMemberModels", () => {
 		const models = buildMemberModels([], catalog, GATEWAY_ID, BASE_URL);
 		expect(models[0]?.cost.cacheRead).toBe(0);
 		expect(models[0]?.cost.cacheWrite).toBe(0);
+	});
+
+	it("applies the max-output map to members by bare name", () => {
+		const catalog = [memberModel("hyper/kimi-k3"), memberModel("acme/obscure")];
+		const models = buildMemberModels([], catalog, GATEWAY_ID, BASE_URL);
+		const byId = new Map(models.map((m) => [m.id, m]));
+		expect(byId.get("hyper/kimi-k3")?.maxTokens).toBe(128_000);
+		expect(byId.get("acme/obscure")?.maxTokens).toBe(8_192);
 	});
 
 	it("is empty when publishMembers is false", () => {

@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions respect
 [SemVer](https://semver.org/).
 
+## [0.3.1] — 2026-10-20
+
+### Fixed
+
+- Chain and member models now publish real max-output limits via a curated
+  per-name map (16 workhorse chains). Bifrost's `/v1/models` wire never
+  carries `max_output_limit` (verified 0/86 rows), so every model fell back
+  to the generic 8192 and long generations hard-stopped there — a plausible
+  contributor to truncated responses on pi traffic. Values sourced from
+  inferhub.dev/pricing (2026-10-20); unmapped names keep the 8192 fallback.
+
 ## [0.3.0] — 2026-10-18
 
 ### Changed
