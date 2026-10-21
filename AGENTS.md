@@ -114,7 +114,7 @@ Adding a custom stream is a design-level decision, never a drive-by fix.
 ## Commands
 
 ```
-npx vitest run        # full suite (40 tests, <2s)
+npx vitest run        # full suite (<2s)
 npx tsc --noEmit      # typecheck
 npm pack --dry-run    # inspect package contents before publishing
 ```
