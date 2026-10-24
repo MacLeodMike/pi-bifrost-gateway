@@ -134,17 +134,19 @@ const MAX_TOKENS_FALLBACK = 8_192;
  * verified 2026-10-20), so without this map every model falls back to 8192
  * and long generations hard-stop there. Values from inferhub.dev/pricing
  * "N max output" rows (2026-10-20); kimi-k2.7-code is unlisted there and
- * takes kimi-k2.5/k2.6's 32K conservatively.
+ * takes kimi-k2.5/k2.6's 32K conservatively (kimi-k3.1-pro's combo members
+ * report 32K directly).
  */
 const MAX_OUTPUT: Readonly<Record<string, number>> = {
 	"glm-5.3-flash": 128_000,
 	"glm-5.3": 128_000,
 	"kimi-k3": 128_000,
 	"kimi-k2.7-code": 32_000,
+	"kimi-k3.1-pro": 32_000,
 	"deepseek-v4-pro": 384_000,
 	"deepseek-v4.1-flash": 384_000,
 	"minimax-m3": 512_000,
-	"minimax-m3.1-flash-preview": 512_000,
+	"minimax-m3.1-flash": 512_000,
 	"qwen3.8-flash": 128_000,
 	"qwen3.8-max": 128_000,
 	"gpt-6-luna": 128_000,
