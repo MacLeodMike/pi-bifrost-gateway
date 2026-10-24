@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions respect
 [SemVer](https://semver.org/).
 
+## [0.3.2] - 2026-10-23
+
+### Fixed
+
+- MAX_OUTPUT map: renamed `minimax-m3.1-flash-preview` → `minimax-m3.1-flash`
+  (combo renamed upstream, no longer preview); added `kimi-k3.1-pro` at
+  32K (its cb/cbcn combo members report 32K directly; kc/kcai rails
+  report 131072 but are not combo members).
+
 ## [0.3.1] — 2026-10-20
 
 ### Fixed
