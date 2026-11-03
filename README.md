@@ -136,6 +136,25 @@ CONSERVATIVE — `publishChains` false, chat completions everywhere:
   - Both off (default): every model publishes chat completions — the only
     wire every Bifrost serves; the gateway translates at the boundary.
 
+## Prompt cache
+
+Models declare `promptCache` lifetimes (`short` 300s, `long` 3600s) so pi's
+cache warmer can keep a prefix alive across idle gaps — without a declared
+lifetime pi treats the model as un-warmable and never refreshes it.
+
+Retention is selected by **pi**, not by this extension:
+
+| goal | how |
+|---|---|
+| 5-minute cache (default) | nothing to do |
+| 1-hour cache | `PI_CACHE_RETENTION=long` |
+| per-provider only | put `PI_CACHE_RETENTION=long` in a credential `env` bag in `auth.json` |
+
+The `ttl:"1h"` breakpoint only appears when long retention is requested;
+declaring the lifetimes does not turn it on. On a Bifrost → InferHub gateway
+the 1h tier costs no more per write than the 5m tier (InferHub bills both at
+the plain input rate), so long retention is the better default there.
+
 ## Cost
 
 Chain models carry **zero** cost by design: pi recomputes cost from catalog

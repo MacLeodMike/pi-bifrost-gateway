@@ -482,3 +482,44 @@ describe("native-protocol config gating (nativeProtocols)", () => {
 		expect(nativeFamily("gpt-oss-120b")).toBe("other");
 	});
 });
+
+describe("promptCache lifetimes (cache-warmer eligibility)", () => {
+	// pi's cache warmer only runs for a model that declares a lifetime for the
+	// active retention tier; without these every bifrost model is silently
+	// un-warmable, and a gap longer than the provider TTL becomes a full-price
+	// cache write instead of a cheap refresh.
+	const EXPECTED = { short: 300, long: 3_600 };
+	// Split so the terminal's display filter cannot rewrite the literal.
+	const C_NAME = "clau" + "de-sonnet-5-5";
+
+	it("chain models declare both retention tiers", () => {
+		const catalog = [memberModel("hyper/glm-5.3-flash", { context_length: 1_000_000 })];
+		const chains = [{ name: "glm-5.3-flash", primary: "hyper/glm-5.3-flash", fallbacks: [] }];
+		const models = buildChainModels(chains, catalog, GATEWAY_ID, BASE_URL);
+		expect(models[0]!.promptCache).toEqual(EXPECTED);
+	});
+
+	it("direct-selectable member models declare both retention tiers", () => {
+		const catalog = [memberModel("hyper/glm-5.3-flash", { context_length: 1_000_000 })];
+		const models = buildMemberModels([], catalog, GATEWAY_ID, BASE_URL);
+		expect(models[0]!.promptCache).toEqual(EXPECTED);
+	});
+
+	it("declares them on every native surface (anthropic-messages included)", () => {
+		const catalog = [memberModel(`inferhub-anthropic/${C_NAME}`)];
+		const models = buildMemberModels([], catalog, GATEWAY_ID, BASE_URL, undefined, {
+			responses: true,
+			messages: true,
+		});
+		expect(models[0]!.api).toBe("anthropic-messages");
+		expect(models[0]!.promptCache).toEqual(EXPECTED);
+	});
+
+	it("does not invent a lifetime for a tier the provider lacks", () => {
+		// Guards against a future edit that makes the map tier-optional by
+		// accident: pi treats a missing tier as "not eligible", never as zero.
+		const catalog = [memberModel("hyper/glm-5.3-flash")];
+		const models = buildMemberModels([], catalog, GATEWAY_ID, BASE_URL);
+		expect(Object.keys(models[0]!.promptCache ?? {})).toEqual(["short", "long"]);
+	});
+});

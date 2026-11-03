@@ -128,6 +128,31 @@ const CONTEXT_WINDOW_FALLBACK = 128_000;
 const MAX_TOKENS_FALLBACK = 8_192;
 
 /**
+ * Prompt-cache lifetimes, in seconds, for the two retention tiers pi knows
+ * (ModelPromptCache = Partial<Record<"short"|"long", number>>).
+ *
+ * pi's cache warmer (settings `cacheWarming`, default "streaming") exists to
+ * re-send a request just before its cache entry expires, and it refuses to
+ * warm any model whose `promptCache` tier has no declared lifetime — see
+ * pi's getPromptCacheTtlMs: "A model without a lifetime for the active tier
+ * is not eligible for cache warming." Without these, warming is silently
+ * inert for EVERY bifrost model, which is exactly the gap that turns a long
+ * tool call or subagent run into a full-price cache write.
+ *
+ * Values mirror the two tiers these models actually serve (probed
+ * 2026-11-03 through gateway → Bifrost → InferHub: a `ttl:"1h"` breakpoint
+ * still read back as a hit at 45 minutes, while the default 5m entry never
+ * survived a 6-minute gap). Pi's docs ask for the conservative end of a
+ * published range, hence the exact nominal values.
+ *
+ * Declaring a lifetime does NOT itself change what is requested: the
+ * `ttl:"1h"` breakpoint is only sent when the caller asks for long
+ * retention (PI_CACHE_RETENTION=long — globally or per provider through the
+ * credential's env bag). This only makes the model ELIGIBLE to be kept warm.
+ */
+const PROMPT_CACHE_LIFETIMES = { short: 300, long: 3_600 } as const;
+
+/**
  * Max output tokens per bare model name. Bifrost's [OI]-compat /v1/models
  * wire serializes only id/created/owned_by/context_window (+ enrichment
  * pricing/architecture) — max_output_limit never reaches it (0/86 rows,
@@ -455,6 +480,7 @@ export function buildChainModels(
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 			contextWindow,
 			maxTokens: MAX_OUTPUT[chain.name] ?? MAX_TOKENS_FALLBACK,
+			promptCache: PROMPT_CACHE_LIFETIMES,
 		});
 	});
 }
@@ -473,6 +499,7 @@ function buildModel(args: {
 	contextWindow: number;
 	maxTokens: number;
 	thinkingLevels?: readonly string[];
+	promptCache?: { short: number; long: number };
 }): GatewayModel {
 	const surface = surfaceFor(args.familyId, args.baseUrl, args.native);
 	const common = {
@@ -484,6 +511,7 @@ function buildModel(args: {
 		reasoning: true as const,
 		contextWindow: args.contextWindow,
 		maxTokens: args.maxTokens,
+		...(args.promptCache ? { promptCache: args.promptCache } : {}),
 	};
 	if (surface.api === "anthropic-messages") {
 		const model: Model<"anthropic-messages"> = {
@@ -573,6 +601,7 @@ export function buildMemberModels(
 				contextWindow: entry.context_length ?? CONTEXT_WINDOW_FALLBACK,
 				maxTokens: entry.max_output_limit ?? MAX_OUTPUT[bareModelName(memberId)] ?? MAX_TOKENS_FALLBACK,
 				thinkingLevels: thinkingOverrides?.[memberId],
+				promptCache: PROMPT_CACHE_LIFETIMES,
 			}),
 		);
 	}

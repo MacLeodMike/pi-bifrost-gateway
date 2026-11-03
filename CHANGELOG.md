@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions respect
 [SemVer](https://semver.org/).
 
+## [0.3.3] - 2026-11-03
+
+### Fixed
+
+- Models now declare `promptCache` lifetimes (`short` 300s, `long` 3600s), on
+  both chain and direct-selectable member models. pi's cache warmer only runs
+  for a model that declares a lifetime for the active retention tier, so
+  warming was silently inert for every bifrost model: a gap longer than the
+  provider TTL turned the next request into a full-price cache write instead
+  of a cheap refresh. Declaring the lifetimes makes models *eligible* to be
+  kept warm; it does not send `ttl:"1h"` unless the caller asks for long
+  retention (`PI_CACHE_RETENTION=long`).
+
+### Verified
+
+- Against a live Bifrost → InferHub `anthropic-messages` route: a
+  `cache_control: {type:"ephemeral", ttl:"1h"}` breakpoint still read back as
+  a cache hit at 45 minutes, while the default 5m entry never survived a
+  6-minute gap. The `extended-cache-ttl-2025-04-11` beta header is not
+  required.
+- InferHub bills cache writes at the plain input rate for both tiers (no 2x
+  long-write premium) and cache reads at 0.1x, so moving to the 1h tier costs
+  nothing extra on this gateway.
+
 ## [0.3.2] - 2026-10-23
 
 ### Fixed
