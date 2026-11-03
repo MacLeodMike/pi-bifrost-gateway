@@ -29,24 +29,24 @@ describe("loadBifrostConfig", () => {
 	describe("resolveBaseUrl", () => {
 	it("prefers explicit config baseUrl", () => {
 		expect(
-			resolveBaseUrl({ publishChains: true, publishUpstream: false, baseUrl: "https://cfg.example.com/v1", issues: [] }),
+			resolveBaseUrl({ publishChains: true, publishUpstream: false, warmChains: false, baseUrl: "https://cfg.example.com/v1", issues: [] }),
 		).toBe("https://cfg.example.com/v1");
 	});
 
 	it("falls back to BIFROST_BASE_URL env", () => {
 		withEnv({ BIFROST_BASE_URL: "https://env-bf.example.com/v1" }, () => {
-			expect(resolveBaseUrl({ publishChains: true, publishUpstream: false, issues: [] })).toBe("https://env-bf.example.com/v1");
+			expect(resolveBaseUrl({ publishChains: true, publishUpstream: false, warmChains: false, issues: [] })).toBe("https://env-bf.example.com/v1");
 		});
 	});
 
 	it("is undefined when nothing is set — no baked-in URL", () => {
 		withEnv({}, () => {
-			expect(resolveBaseUrl({ publishChains: true, publishUpstream: false, issues: [] })).toBeUndefined();
+			expect(resolveBaseUrl({ publishChains: true, publishUpstream: false, warmChains: false, issues: [] })).toBeUndefined();
 		});
 	});
 
 	it("accepts a config with url for the type (structural check)", () => {
-		const cfg: BifrostConfig = { publishChains: true, publishUpstream: true, baseUrl: "https://x/v1", issues: [] };
+		const cfg: BifrostConfig = { publishChains: true, publishUpstream: true, warmChains: false, baseUrl: "https://x/v1", issues: [] };
 		expect(cfg.baseUrl).toBe("https://x/v1");
 	});
 });
@@ -303,6 +303,48 @@ describe("managementApiKey + nativeProtocols config", () => {
 			const cfg = loadBifrostConfig(dir);
 			expect(cfg.managementApiKey).toBeUndefined();
 			expect(cfg.issues.length).toBeGreaterThan(0);
+		} finally {
+			cleanup(dir);
+		}
+	});
+});
+
+describe("warmChains config", () => {
+	function tempDir(): string {
+		const dir = mkdtempSync(join(tmpdir(), "bifrost-warm-"));
+		return dir;
+	}
+	function cleanup(dir: string): void {
+		rmSync(dir, { recursive: true, force: true });
+	}
+
+	it("defaults to false — chain warming is opt-in (it spends money)", () => {
+		const dir = tempDir();
+		writeFileSync(join(dir, "pi-bifrost-gateway.json"), JSON.stringify({ publishChains: true }));
+		try {
+			expect(loadBifrostConfig(dir).warmChains).toBe(false);
+		} finally {
+			cleanup(dir);
+		}
+	});
+
+	it("reads an explicit true", () => {
+		const dir = tempDir();
+		writeFileSync(join(dir, "pi-bifrost-gateway.json"), JSON.stringify({ warmChains: true }));
+		try {
+			expect(loadBifrostConfig(dir).warmChains).toBe(true);
+		} finally {
+			cleanup(dir);
+		}
+	});
+
+	it("rejects a non-boolean instead of coercing it", () => {
+		const dir = tempDir();
+		writeFileSync(join(dir, "pi-bifrost-gateway.json"), JSON.stringify({ warmChains: "yes" }));
+		try {
+			const cfg = loadBifrostConfig(dir);
+			expect(cfg.warmChains).toBe(false);
+			expect(cfg.issues.some((i) => i.includes("warmChains"))).toBe(true);
 		} finally {
 			cleanup(dir);
 		}

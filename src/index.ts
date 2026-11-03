@@ -13,7 +13,8 @@ import {
 	openAIResponsesApi,
 } from "@earendil-works/pi-ai/compat";
 import { AUTH_ENV_KEYS, PROVIDER_DISPLAY_NAME, PROVIDER_ID, UNRESOLVED_BASE_URL } from "./bifrost.js";
-import { loadBifrostConfig, resolveBaseUrl, type NativeProtocols } from "./config.js";
+import { loadBifrostConfig, resolveBaseUrl, type BifrostConfig, type NativeProtocols } from "./config.js";
+import { chainWarmingAction } from "./warming.js";
 import { buildAllModels, type GatewayModel, type SurfaceApi, wireCatalog, wireDiscovery, wireRulesToChains, wireScopeId } from "./catalog.js";
 
 /** Credential env key carrying the gateway URL captured at /login. */
@@ -90,9 +91,18 @@ export function gatewayAuth(): ApiKeyAuth {
 					source: AUTH_ENV_KEYS[0],
 				};
 			}
+			// Forward the credential's WHOLE env bag, not just the gateway URL.
+			// pi-ai resolves provider-scoped settings from this bag
+			// (getProviderEnvValue: env?.[name] || process.env[name]), so
+			// dropping keys here silently disables every per-provider override
+			// a user stores on the credential. PI_CACHE_RETENTION is the one
+			// that matters most: retention is otherwise global (or per-subagent)
+			// with no per-provider control.
+			const storedEnv =
+				credential?.type === "api_key" && credential.env ? credential.env : undefined;
 			return {
 				auth: { apiKey: key },
-				env: credUrl ? { [CRED_ENV_URL]: credUrl } : undefined,
+				env: storedEnv ? { ...storedEnv, ...(credUrl ? { [CRED_ENV_URL]: credUrl } : {}) } : undefined,
 				source: credUrl ? "stored bifrost credential (key + gateway URL)" : "stored bifrost credential",
 			};
 		},
@@ -302,4 +312,24 @@ export default function (pi: ExtensionAPI): void {
 		thinkingOverrides: config.thinkingOverrides,
 	});
 	registerBifrostProvider(pi, provider);
+
+	// Chain models publish zero cost by design, so pi's cache-warming
+	// economics are always unavailable for them and the warmer never fires —
+	// which is exactly the gap that turns a long tool call into a full-price
+	// cache write at the next turn. This handler supplies the decision pi
+	// cannot compute for a zero-cost model. It only ever overrides "stop" on
+	// this provider's zero-cost (chain) models; every other model and every
+	// pi decision of "warm" passes through untouched.
+	if (config.warmChains) {
+		pi.on("cache_warming_decision", async (event, ctx) => {
+			const decision = chainWarmingAction({
+				providerId: PROVIDER_ID,
+				model: ctx.model,
+				piAction: event.action,
+				missCost: event.missCost,
+				continuationProbability: event.continuationProbability,
+			});
+			return decision.action ? { action: decision.action } : undefined;
+		});
+	}
 }

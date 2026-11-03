@@ -6,8 +6,28 @@ All notable changes to this project are documented here. The format follows
 
 ## [0.3.3] - 2026-11-03
 
+### Added
+
+- **`warmChains`** config flag (default `false`). Chain models publish zero
+  cost by design, which makes pi's cache-warming economics unavailable and the
+  warmer a no-op for exactly the models this extension provides. With this on,
+  a `cache_warming_decision` handler supplies the decision pi cannot compute:
+  it warms a `bifrost/<chain>` while a run is streaming (pi's
+  `continuationProbability` 1), and stays silent once the agent is idle
+  (0.15) so refreshes never accumulate on a session nobody is driving. It
+  never touches member models, never overrides a model from another provider,
+  and steps aside whenever pi produced real economics (`missCost` non-zero).
+  Off by default because refreshes are real, billable requests.
+
 ### Fixed
 
+- **Per-provider settings now reach the request.** `gatewayAuth().resolve()`
+  forwarded only `BIFROST_URL` and dropped every other key from the
+  credential's env bag, so a per-provider override stored on the credential
+  was silently ignored. pi-ai resolves provider-scoped settings through that
+  bag (`getProviderEnvValue`), which is what makes `PI_CACHE_RETENTION` — the
+  only per-provider retention control pi offers, since `cacheWarming` is
+  global — actually take effect.
 - Models now declare `promptCache` lifetimes (`short` 300s, `long` 3600s), on
   both chain and direct-selectable member models. pi's cache warmer only runs
   for a model that declares a lifetime for the active retention tier, so
@@ -27,6 +47,10 @@ All notable changes to this project are documented here. The format follows
 - InferHub bills cache writes at the plain input rate for both tiers (no 2x
   long-write premium) and cache reads at 0.1x, so moving to the 1h tier costs
   nothing extra on this gateway.
+- Cache-warming behaviour driven through pi's real `CacheWarmer`: chain models
+  go from 0 to 1 warm request once the handler is enabled, and back to 0 when
+  idle; priced members and anthropic-wire members are unchanged by the
+  handler.
 
 ## [0.3.2] - 2026-10-23
 

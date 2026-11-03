@@ -148,12 +148,31 @@ Retention is selected by **pi**, not by this extension:
 |---|---|
 | 5-minute cache (default) | nothing to do |
 | 1-hour cache | `PI_CACHE_RETENTION=long` |
-| per-provider only | put `PI_CACHE_RETENTION=long` in a credential `env` bag in `auth.json` |
+| per-provider only | put `PI_CACHE_RETENTION=long` in the credential `env` bag in `auth.json` |
+| keep a session warm | `"warmChains": true` (see below) |
 
 The `ttl:"1h"` breakpoint only appears when long retention is requested;
 declaring the lifetimes does not turn it on. On a Bifrost → InferHub gateway
 the 1h tier costs no more per write than the 5m tier (InferHub bills both at
 the plain input rate), so long retention is the better default there.
+
+A per-provider value is forwarded from the credential's env bag, which is
+where pi reads provider-scoped settings:
+
+```jsonc
+// ~/.pi/agent/auth.json
+"bifrost": { "type": "api_key", "key": "...", "env": { "PI_CACHE_RETENTION": "long" } }
+```
+
+### Keeping a chain warm (`warmChains`)
+
+`promptCache` makes a model *eligible* for pi's cache warmer, but chains are
+still skipped: they publish zero cost by design, so pi's savings estimate is
+zero and it never refreshes them. `"warmChains": true` adds a
+`cache_warming_decision` handler that warms a `bifrost/<chain>` while a run is
+streaming, and stays quiet once the agent is idle. Refreshes are real,
+billable requests (a cache read of the prefix), which is why it is off by
+default.
 
 ## Cost
 

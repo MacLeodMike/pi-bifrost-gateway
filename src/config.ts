@@ -45,6 +45,14 @@ export interface BifrostConfig {
 	managementApiKey?: string;
 	/** Native-protocol surface gates (both default false — chat completions everywhere). */
 	nativeProtocols?: NativeProtocols;
+	/**
+	 * Keep chain prompt caches warm while an agent run is in flight
+	 * (default false). Chain models publish zero cost by design, so pi's own
+	 * cache warmer always declines them ("cache economics unavailable"); this
+	 * flag opts chains into a refresh on pi's own timer instead. Affects
+	 * billing: refreshes are real requests, billed as cache reads.
+	 */
+	warmChains: boolean;
 	/** Human-readable problems found while loading the file. */
 	issues: string[];
 }
@@ -160,16 +168,16 @@ export function loadBifrostConfig(agentDir: string): BifrostConfig {
 	} catch (error) {
 		const code = (error as NodeJS.ErrnoException)?.code;
 		if (code === "ENOENT") {
-			return { publishChains: false, publishUpstream: true, thinkingOverrides: undefined, issues };
+			return { publishChains: false, publishUpstream: true, thinkingOverrides: undefined, warmChains: false, issues };
 		}
 		const message = error instanceof Error ? error.message : String(error);
 		issues.push(`${CONFIG_FILE_NAME} is not valid JSON (${message}); using defaults`);
-		return { publishChains: false, publishUpstream: true, issues };
+		return { publishChains: false, publishUpstream: true, warmChains: false, issues };
 	}
 
 	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
 		issues.push(`${CONFIG_FILE_NAME} must contain a JSON object; using defaults`);
-		return { publishChains: false, publishUpstream: true, issues };
+		return { publishChains: false, publishUpstream: true, warmChains: false, issues };
 	}
 
 	const obj = raw as Record<string, unknown>;
@@ -180,6 +188,7 @@ export function loadBifrostConfig(agentDir: string): BifrostConfig {
 	let thinkingOverrides: Record<string, string[]> | undefined;
 	let managementApiKey: string | undefined;
 	let nativeProtocols: NativeProtocols | undefined;
+	let warmChains = false;
 
 	for (const [key, value] of Object.entries(obj)) {
 		switch (key) {
@@ -220,6 +229,10 @@ export function loadBifrostConfig(agentDir: string): BifrostConfig {
 				if (typeof value === "string" && value.trim().length > 0) managementApiKey = value.trim();
 				else issues.push(`managementApiKey must be a non-empty string (got ${typeof value}); ignoring`);
 				break;
+			case "warmChains":
+				if (typeof value === "boolean") warmChains = value;
+				else issues.push(`warmChains must be a boolean (got ${typeof value}); using false`);
+				break;
 			case "nativeProtocols":
 				nativeProtocols = parseNativeProtocols(value, issues);
 				break;
@@ -236,6 +249,7 @@ export function loadBifrostConfig(agentDir: string): BifrostConfig {
 		thinkingOverrides,
 		managementApiKey,
 		nativeProtocols,
+		warmChains,
 		issues,
 	};
 }

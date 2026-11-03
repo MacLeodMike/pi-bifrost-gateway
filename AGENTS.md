@@ -23,6 +23,8 @@ src/config.ts    ← loadBifrostConfig (~/.pi/agent/pi-bifrost-gateway.json; LEG
                    managementApiKey (mgmt-plane bearer; falls back to the VK), nativeProtocols gates
                    (responses/messages toggles + exact-name lists replacing the built-in family heuristic)
 src/http.ts      ← transport only — fetchJson (Bearer GET + typebox validation), HttpError{status,code,message}
+src/warming.ts  ← chain cache-warming policy — PURE predicate + decision (isChainModel, chainWarmingAction);
+                   no pi imports at runtime, unit-testable without a session
 src/catalog.ts   ← wireDiscovery (catalog + routing rules), PURE mappers for tests:
                    chainNameFromCel (managed-prefix stripping), wireRulesToChains,
                    wireCatalogToModels, buildChainModels, buildMemberModels, buildAllModels

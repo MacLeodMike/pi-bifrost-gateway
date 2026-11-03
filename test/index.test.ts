@@ -96,6 +96,45 @@ describe("gatewayAuth resolve", () => {
 		expect(result?.source).toContain("gateway URL");
 	});
 
+	it("forwards EVERY credential env key, not just the gateway URL", async () => {
+		// pi-ai reads provider-scoped settings from this bag
+		// (getProviderEnvValue: env?.[name] || process.env[name]); dropping a
+		// key here silently disables the per-provider override it carries.
+		const result = await gatewayAuth().resolve!({
+			ctx: ctx({}),
+			credential: {
+				type: "api_key",
+				key: "vk-secret",
+				env: { BIFROST_URL: "https://gw.example/v1", PI_CACHE_RETENTION: "long" },
+			},
+			signal: new AbortController().signal,
+		});
+		expect(result?.env).toEqual({
+			BIFROST_URL: "https://gw.example/v1",
+			PI_CACHE_RETENTION: "long",
+		});
+	});
+
+	it("keeps a per-provider PI_CACHE_RETENTION when no URL was stored", async () => {
+		const result = await gatewayAuth().resolve!({
+			ctx: ctx({}),
+			credential: { type: "api_key", key: "vk-secret", env: { PI_CACHE_RETENTION: "long" } },
+			signal: new AbortController().signal,
+		});
+		expect(result?.env).toEqual({ PI_CACHE_RETENTION: "long" });
+		// No URL captured => the status label must not claim one.
+		expect(result?.source).toBe("stored bifrost credential");
+	});
+
+	it("returns no env at all when the credential carries none", async () => {
+		const result = await gatewayAuth().resolve!({
+			ctx: ctx({}),
+			credential: { type: "api_key", key: "vk-secret" },
+			signal: new AbortController().signal,
+		});
+		expect(result?.env).toBeUndefined();
+	});
+
 	it("resolves BIFROST_API_KEY from the environment when nothing is stored", async () => {
 		const result = await gatewayAuth().resolve!({
 			ctx: ctx({ BIFROST_API_KEY: "vk-env" }),
