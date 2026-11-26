@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions respect
 [SemVer](https://semver.org/).
 
+## [0.3.4] - 2026-11-27
+
+### Added
+
+- `glm-5.4` joins the curated max-output map at **131072** tokens, the
+  ceiling inferhub reports for its `zai/glm-5.4` upstream. A chain deployed
+  for that bare name publishes the real ceiling instead of the 8192 fallback
+  (Bifrost's OpenAI-compat `/v1/models` never carries `max_output_limit`, so
+  the value has to live here).
+
 ## [0.3.3] - 2026-11-03
 
 ### Added

@@ -180,6 +180,8 @@ const MAX_OUTPUT: Readonly<Record<string, number>> = {
 	"claude-sonnet-5-5": 128_000,
 	"claude-fable-5-1": 128_000,
 	"claude-opus-5-5": 128_000,
+	// 2026-11-27: inferhub reports zai/glm-5.4 at 131072 max output.
+	"glm-5.4": 131_072,
 };
 
 /* ---------- wire schemas (typebox-validated) ---------- */
